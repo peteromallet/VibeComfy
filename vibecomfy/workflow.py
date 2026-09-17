@@ -15,6 +15,7 @@ from vibecomfy._compile import _helpers as workflow_helpers
 from vibecomfy._compile._graph import is_canonical_api_link
 from vibecomfy.errors import VibeComfyError
 from vibecomfy.handles import Handle
+from vibecomfy.contracts.runtime import RuntimeRequirements
 
 if TYPE_CHECKING:
     from vibecomfy.schema.provider import SchemaProvider
@@ -113,14 +114,16 @@ class WorkflowSource:
 @dataclass(slots=True)
 class WorkflowRequirements:
     # Model assets may retain their source-backed mapping (name/subdir plus
-    # optional provenance) while crossing the ready-template boundary.  The
-    # ordinary inferred path still stores strings; the richer form is needed
-    # when a generated pair must preserve deterministic local targets.
+    # optional provenance) while crossing the ready-template boundary.
     models: list[str | Mapping[str, Any]] = field(default_factory=list)
     custom_nodes: list[str] = field(default_factory=list)
     missing_models: list[str] = field(default_factory=list)
     missing_nodes: list[str] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
+    runtime: RuntimeRequirements | None = None
+    def __post_init__(self) -> None:
+        if self.runtime is not None and not isinstance(self.runtime, RuntimeRequirements):
+            self.runtime = RuntimeRequirements.from_dict(self.runtime)
 
 
 @dataclass(slots=True)
@@ -822,6 +825,8 @@ class VibeWorkflow:
             field_name: sorted(str(value) for value in getattr(self.requirements, field_name))
             for field_name in ("models", "custom_nodes", "missing_models", "missing_nodes", "unsupported")
         }
+        if self.requirements.runtime is not None:
+            requirements["runtime"] = self.requirements.runtime.to_dict()
         inputs = [
             {
                 "name": item.name, "node_id": item.node_id, "field": item.field,
@@ -1022,11 +1027,12 @@ class VibeWorkflow:
         self.outputs.sort(key=lambda o: (int(o.node_id) if o.node_id.isdigit() else (1 << 30), o.node_id))
         inferred = _infer_requirements(self)
         # Refresh inferred model/custom-node facts without discarding detached
-        # diagnostics captured at an earlier ingress boundary.
+        # diagnostics or the authored runtime declaration.
         previous = self.requirements
         inferred.missing_models = list(previous.missing_models)
         inferred.missing_nodes = list(previous.missing_nodes)
         inferred.unsupported = list(previous.unsupported)
+        inferred.runtime = previous.runtime
         self.requirements = inferred
         return self
 

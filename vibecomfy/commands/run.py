@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import sys
+import time
+import uuid
 from pathlib import Path
 
 from vibecomfy.cli_loader import load_bundle
@@ -13,6 +16,7 @@ from vibecomfy.runtime.session import SessionConfig, active_session_metadata, fi
 from vibecomfy.runtime.prepared import PreparationError, prepare_workflow
 from vibecomfy.registry.static_contract import reconcile_ready_template_file
 from vibecomfy.schema import get_authoring_schema_provider, get_target_schema_provider
+from vibecomfy.utils import atomic_write_json
 
 
 def get_schema_provider(prefer: str, *, server_url: str | None = None):
@@ -90,6 +94,46 @@ def _print_dependency_blockers(blockers: list[dict[str, object]]) -> None:
         print(f"{source}:{line} — {path}: {message}", file=sys.stderr)
 
 
+def _persist_cli_dependency_failure(
+    *,
+    workflow: object,
+    runtime_requirements: object,
+    runtime_report: dict[str, object],
+    runtime_root: str | Path | None,
+    phase: str,
+    error: BaseException,
+) -> Path | None:
+    """Persist a pre-queue CLI dependency failure before a run record exists."""
+    try:
+        root = Path(runtime_root).expanduser() if runtime_root is not None else Path.cwd()
+        run_id = f"dependency-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+        run_dir = root / "out" / "dependency-failures" / run_id
+        report = dict(runtime_report)
+        report.setdefault("changes", [])
+        report["error"] = str(error)
+        payload = {
+            "receipt_type": "runtime_dependency_failure",
+            "run_id": run_id,
+            "workflow_id": getattr(workflow, "id", None),
+            "phase": phase,
+            "status": "failed",
+            "requirements": getattr(runtime_requirements, "to_dict", lambda: {})(),
+            "runtime_dependency": report,
+            "managed_runtime": {
+                "runtime_root": str(root.resolve(strict=False)),
+                "artifact_location": str(run_dir),
+            },
+            "log_provenance": {
+                "available": False,
+                "kind": "not_started",
+                "path": None,
+            },
+        }
+        return atomic_write_json(run_dir / "receipt.json", payload)
+    except (OSError, TypeError, ValueError):
+        return None
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     try:
         ensure_packs = bool(getattr(args, "ensure_packs", False))
@@ -98,6 +142,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         memory_profile = getattr(args, "memory_profile", None)
         runtime = getattr(args, "runtime", "auto")
         server_url = getattr(args, "server_url", None)
+        dependency_mode = getattr(args, "deps", "reuse")
         session_url = server_url
         session_metadata = None
         preparation = None
@@ -154,6 +199,139 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except Exception as exc:
             _print_source_migration_failure(args.path, str(exc))
             return 1
+        from vibecomfy.runtime.dependencies import (
+            RuntimeDependencyError,
+            compare_runtime,
+            inspect_runtime_target,
+            runtime_requirements_from_workflow,
+            sync_runtime,
+        )
+        runtime_requirements = runtime_requirements_from_workflow(workflow)
+        runtime_dependency_report = None
+        if runtime_requirements is not None:
+            if server_url is not None:
+                # An explicit server owns its interpreter and filesystem. A
+                # local process observation must never masquerade as its facts.
+                runtime_dependency_report = compare_runtime(
+                    runtime_requirements, target={}, runtime_root=None
+                )
+            elif session_url is not None:
+                session_config = (session_metadata or {}).get("config", {})
+                target_root = (
+                    session_config.get("runtime_root")
+                    if isinstance(session_config, dict)
+                    else None
+                ) or runtime_root or Path.cwd()
+                target = inspect_runtime_target(
+                    runtime_root=target_root,
+                    package_names=[name for name, _constraint in runtime_requirements.packages],
+                )
+                if isinstance(session_config, dict) and isinstance(session_config.get("launch_flags"), list):
+                    target["launch_flags"] = list(session_config["launch_flags"])
+                target["runtime_root"] = str(target_root)
+                target["managed"] = True
+                runtime_dependency_report = compare_runtime(
+                    runtime_requirements, target=target, runtime_root=target_root
+                )
+            else:
+                runtime_dependency_report = compare_runtime(
+                    runtime_requirements,
+                    runtime_root=runtime_root or Path.cwd(),
+                )
+            runtime_dependency_report["mode"] = dependency_mode
+            runtime_dependency_report.setdefault("changes", [])
+
+        if dependency_mode == "sync" and session_url is not None and server_url is None:
+            if not getattr(args, "restart_session", False):
+                print(
+                    "run failed: --deps sync refused while the managed session is active; "
+                    "stop it or pass --restart-session",
+                    file=sys.stderr,
+                )
+                return 1
+            from vibecomfy.commands import session as session_command
+
+            if session_command._cmd_session_stop(
+                argparse.Namespace(
+                    id=lookup_session_id,
+                    runtime_root=runtime_root or str(Path.cwd()),
+                    quiet=True,
+                )
+            ) != 0:
+                print(f"run failed: could not safely restart session {lookup_session_id!r}", file=sys.stderr)
+                return 1
+            session_url = None
+            session_metadata = None
+
+        offline_sync = (
+            dependency_mode == "sync"
+            and os.environ.get("VIBECOMFY_OFFLINE") == "1"
+        )
+        if offline_sync and runtime_requirements is not None:
+            offline_report = compare_runtime(
+                runtime_requirements,
+                runtime_root=runtime_root or Path.cwd(),
+            )
+            if not offline_report.get("ok") or offline_report.get("status") != "matching":
+                receipt = _persist_cli_dependency_failure(
+                    workflow=workflow,
+                    runtime_requirements=runtime_requirements,
+                    runtime_report={**offline_report, "mode": "sync"},
+                    runtime_root=runtime_root,
+                    phase="dependencies",
+                    error=RuntimeDependencyError(
+                        "offline synchronization requires an already matching runtime"
+                    ),
+                )
+                print(
+                    "run failed: --deps sync cannot repair a runtime in offline mode; "
+                    "all declared dependencies must already match before preparation",
+                    file=sys.stderr,
+                )
+                if receipt is not None:
+                    print(f"dependency_receipt: {receipt}", file=sys.stderr)
+                return 1
+
+        if dependency_mode == "sync" and runtime_requirements is not None and server_url is None:
+            try:
+                runtime_dependency_report = sync_runtime(
+                    runtime_requirements,
+                    runtime_root=runtime_root or Path.cwd(),
+                    offline=os.environ.get("VIBECOMFY_OFFLINE") == "1",
+                    launch_flags=list(runtime_requirements.launch_flags),
+                )
+            except RuntimeDependencyError as exc:
+                receipt = _persist_cli_dependency_failure(
+                    workflow=workflow,
+                    runtime_requirements=runtime_requirements,
+                    runtime_report=dict(getattr(exc, "dependency_report", None) or runtime_dependency_report or {}),
+                    runtime_root=runtime_root,
+                    phase="dependencies",
+                    error=exc,
+                )
+                print(f"run failed: {exc}", file=sys.stderr)
+                if receipt is not None:
+                    print(f"dependency_receipt: {receipt}", file=sys.stderr)
+                return 1
+        elif dependency_mode == "sync" and server_url is not None:
+            receipt = _persist_cli_dependency_failure(
+                workflow=workflow,
+                runtime_requirements=runtime_requirements,
+                runtime_report=dict(runtime_dependency_report or {}),
+                runtime_root=runtime_root,
+                phase="dependencies",
+                error=RuntimeDependencyError(
+                    "--deps sync is unavailable for an explicit external server"
+                ),
+            )
+            print(
+                "run failed: --deps sync is non-mutating only for managed targets; "
+                "an explicit external server can use --deps reuse",
+                file=sys.stderr,
+            )
+            if receipt is not None:
+                print(f"dependency_receipt: {receipt}", file=sys.stderr)
+            return 2
 
         local_source = _canonical_source_path(args.path, workflow)
         local_prepare = server_url is None and local_source is not None
@@ -192,10 +370,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     session_id=lookup_session_id,
                     download_workers=getattr(args, "download_workers", None),
                     quiet=bool(getattr(args, "json", False)),
+                    runtime_dependency_report=runtime_dependency_report,
                 )
             except PreparationError as exc:
                 print(f"run failed: {exc}", file=sys.stderr)
                 return 1
+        runtime_requirements = runtime_requirements_from_workflow(workflow)
 
         if getattr(args, "restart_session", False) and session_url is not None:
             from vibecomfy.commands import session as session_command
@@ -226,12 +406,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 output_directory=None,
                 temp_directory=None,
                 ready_timeout_sec=None,
+                launch_flags=list(runtime_requirements.launch_flags) if runtime_requirements is not None else None,
                 quiet=True,
             )
             if session_command._cmd_session_start(start_args) != 0:
                 return 1
             session_url = _find_session(lookup_session_id, start_args.runtime_root)
             started_session = session_url is not None
+            session_metadata = active_session_metadata(
+                lookup_session_id, runtime_root=start_args.runtime_root
+            )
             if session_url is None:
                 print("run failed: managed session did not become active", file=sys.stderr)
                 return 1
@@ -271,32 +455,57 @@ def _cmd_run(args: argparse.Namespace) -> int:
         external_log_locator = getattr(args, "external_log_locator", None)
         if external_log_locator is not None:
             config_extra["external_log_locator"] = external_log_locator
+        if runtime_requirements is not None and runtime_requirements.launch_flags:
+            config_extra["launch_flags"] = list(runtime_requirements.launch_flags)
         config = SessionConfig(
             memory_profile=memory_profile,
             runtime_root=runtime_root,
             extra=config_extra,
         )
 
+        managed_runtime_target = None
+        if session_url is not None and server_url is None:
+            session_config = (session_metadata or {}).get("config", {})
+            if isinstance(session_config, dict):
+                managed_runtime_target = inspect_runtime_target(
+                    runtime_root=session_config.get("runtime_root") or runtime_root or Path.cwd(),
+                    package_names=[name for name, _constraint in runtime_requirements.packages]
+                    if runtime_requirements is not None else None,
+                )
+                if isinstance(session_config.get("launch_flags"), list):
+                    managed_runtime_target["launch_flags"] = list(session_config["launch_flags"])
+                managed_runtime_target["runtime_root"] = str(
+                    session_config.get("runtime_root") or runtime_root or Path.cwd()
+                )
+                managed_runtime_target["managed"] = True
+
         def execute_once():
             if runtime == "embedded" or (runtime == "auto" and session_url is None):
-                return run_embedded_sync(
-                    record,
-                    bundle,
-                    backend=getattr(args, "backend", "api"),
-                    ensure_packs=ensure_packs and preparation is None,
-                    ensure_models=bool(getattr(args, "ensure_models", False)) and preparation is None,
-                    config=config,
-                )
-            return run_sync(
-                record,
-                bundle,
-                server_url=session_url,
-                backend=getattr(args, "backend", "api"),
-                schema_provider=schema_provider if session_url is not None else None,
-                ensure_models=False if preparation is not None else bool(getattr(args, "ensure_models", False)),
-                shared_models_root=getattr(args, "shared_models_root", None),
-                config=config,
-            )
+                kwargs: dict[str, object] = {
+                    "backend": getattr(args, "backend", "api"),
+                    "ensure_packs": ensure_packs and preparation is None,
+                    "ensure_models": bool(getattr(args, "ensure_models", False)) and preparation is None,
+                    "config": config,
+                }
+                if dependency_mode != "reuse":
+                    kwargs["dependency_mode"] = dependency_mode
+                if runtime_dependency_report is not None:
+                    kwargs["dependency_report"] = runtime_dependency_report
+                return run_embedded_sync(record, bundle, **kwargs)
+            kwargs = {
+                "server_url": session_url,
+                "backend": getattr(args, "backend", "api"),
+                "schema_provider": schema_provider if session_url is not None else None,
+                "ensure_models": False if preparation is not None else bool(getattr(args, "ensure_models", False)),
+                "shared_models_root": getattr(args, "shared_models_root", None),
+                "config": config,
+                "runtime_target": managed_runtime_target,
+            }
+            if dependency_mode != "reuse":
+                kwargs["dependency_mode"] = dependency_mode
+            if runtime_dependency_report is not None:
+                kwargs["dependency_report"] = runtime_dependency_report
+            return run_sync(record, bundle, **kwargs)
 
         try:
             if session_url is not None:
@@ -403,6 +612,12 @@ def register(subparsers) -> None:
     run.add_argument("--ready", action="store_true")
     run.add_argument("--runtime", choices=["auto", "embedded", "server"], default="auto")
     run.add_argument("--server-url")
+    run.add_argument(
+        "--deps",
+        choices=["reuse", "sync"],
+        default="reuse",
+        help="Reuse the declared runtime target or explicitly synchronize a managed target.",
+    )
     run.add_argument(
         "--external-log-locator",
         help="Reference for logs owned by an explicit external Comfy server; never treated as captured.",

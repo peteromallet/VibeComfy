@@ -154,6 +154,17 @@ def _is_authored_link(value: Any, node_ids: set[str]) -> bool:
 
 def _merge_requirements(workflow: VibeWorkflow, requirements: Mapping[str, list[Any]]) -> None:
     normalized, _warnings = normalize_custom_node_requirements(requirements)
+    from vibecomfy.contracts.runtime import RuntimeDependencyError, RuntimeRequirements
+    try:
+        runtime = RuntimeRequirements.from_dict(
+            requirements.get("runtime"),
+            legacy_python_env=workflow.metadata.get("python_env") if isinstance(workflow.metadata.get("python_env"), dict) else None,
+            legacy_comfy_commit=workflow.metadata.get("comfy_commit") if isinstance(workflow.metadata.get("comfy_commit"), str) else None,
+        )
+    except RuntimeDependencyError as exc:
+        raise ValueError(str(exc)) from exc
+    if runtime is not None:
+        workflow.requirements.runtime = runtime
     for model in requirements.get("models", []):
         if isinstance(model, Mapping):
             name = model.get("name")

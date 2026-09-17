@@ -74,6 +74,9 @@ def _config_from_args(args: argparse.Namespace) -> dict[str, Any]:
     ready_timeout_sec = getattr(args, "ready_timeout_sec", None)
     if ready_timeout_sec is not None:
         config["ready_timeout_sec"] = ready_timeout_sec
+    launch_flags = getattr(args, "launch_flags", None)
+    if isinstance(launch_flags, (list, tuple)) and launch_flags:
+        config["launch_flags"] = list(launch_flags)
     runtime_root = getattr(args, "runtime_root", None)
     if runtime_root is not None:
         config["runtime_root"] = str(_runtime_root(runtime_root))
@@ -336,6 +339,7 @@ def register(subparsers) -> None:
     start.add_argument("--memory-profile", type=int, choices=[1, 2, 3, 4, 5])
     start.add_argument("--port", type=int, default=8188)
     start.add_argument("--input-directory")
+    start.add_argument("--launch-flag", dest="launch_flags", action="append", help="Additional ComfyUI launch flag; repeatable.")
     start.add_argument("--output-directory")
     start.add_argument("--temp-directory")
     start.add_argument("--ready-timeout-sec", type=int)

@@ -77,11 +77,15 @@ def collect_drift(
     # -- (b) comfy_commit drift -----------------------------------------------
     _collect_comfy_commit_drift(workflow, pinned, actual, mismatches)
 
+    from vibecomfy.runtime.dependencies import compare_runtime, runtime_requirements_from_workflow
+    runtime_requirements = runtime_requirements_from_workflow(workflow)
     result: dict[str, Any] = {
         "pinned": pinned,
         "actual": actual,
         "mismatches": mismatches,
     }
+    if runtime_requirements is not None:
+        result["runtime"] = compare_runtime(runtime_requirements)
     _drift_cache[key] = result
 
     if mismatches:

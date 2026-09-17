@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from vibecomfy.commands import runpod_setup
+from vibecomfy.contracts.runtime import RuntimeDependencyError
 from vibecomfy.registry.models_loader import canonical_filename, load_registry
 
 
@@ -70,6 +73,90 @@ def test_comfy_serve_command_includes_runpod_public_flags(tmp_path: Path) -> Non
     assert "*" not in command
     assert "--highvram" not in command
     assert "--disable-dynamic-vram" not in command
+
+
+def test_comfy_serve_command_uses_declared_launch_flags(tmp_path: Path) -> None:
+    command = runpod_setup.comfy_serve_command(
+        runtime_root=tmp_path,
+        external_address=None,
+        launch_flags=("--use-ck-attention", "--disable-comfy-compiler"),
+    )
+
+    assert "--use-ck-attention" in command
+    assert "--disable-comfy-compiler" in command
+    assert "--lowvram" not in command
+
+
+def test_offline_node_install_requires_existing_checkout(tmp_path: Path) -> None:
+    lockfile = tmp_path / "custom_nodes.lock"
+    lockfile.write_text(
+        "[nodepacks.demo]\nurl = 'https://example.invalid/demo.git'\ngit_commit_sha = 'abc'\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeDependencyError, match="existing checkout"):
+        runpod_setup.install_node_packs(
+            custom_nodes=tmp_path / "custom_nodes",
+            lockfile=lockfile,
+            node_packs=("demo",),
+            install_requirements=False,
+            offline=True,
+        )
+
+
+def test_offline_node_install_skips_fetch_and_rejects_network_requirements(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lockfile = tmp_path / "custom_nodes.lock"
+    lockfile.write_text(
+        "[nodepacks.demo]\nurl = 'https://example.invalid/demo.git'\ngit_commit_sha = 'abc'\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "custom_nodes" / "demo"
+    target.mkdir(parents=True)
+    requirements = target / "requirements.txt"
+    requirements.write_text("https://example.invalid/package.whl\n", encoding="utf-8")
+
+    calls: list[tuple[list[str], bool]] = []
+
+    def fake_run(cmd, *, dry_run, check=True):
+        calls.append((list(cmd), check))
+        return None
+
+    monkeypatch.setattr(runpod_setup, "_run", fake_run)
+
+    with pytest.raises(RuntimeDependencyError, match="network requirement source"):
+        runpod_setup.install_node_packs(
+            custom_nodes=tmp_path / "custom_nodes",
+            lockfile=lockfile,
+            node_packs=("demo",),
+            offline=True,
+        )
+
+    nested = target / "nested.txt"
+    nested.write_text("demo==1.0\n", encoding="utf-8")
+    requirements.write_text("-r nested.txt\n", encoding="utf-8")
+    nested.write_text("--requirement=https://example.invalid/other.txt\n", encoding="utf-8")
+    with pytest.raises(RuntimeDependencyError, match="network requirement source"):
+        runpod_setup.install_node_packs(
+            custom_nodes=tmp_path / "custom_nodes",
+            lockfile=lockfile,
+            node_packs=("demo",),
+            offline=True,
+        )
+
+    requirements.write_text("demo==1.0\n", encoding="utf-8")
+    runpod_setup.install_node_packs(
+        custom_nodes=tmp_path / "custom_nodes",
+        lockfile=lockfile,
+        node_packs=("demo",),
+        offline=True,
+    )
+
+    assert not any(command[0][3:5] == ["fetch", "--depth"] for command in calls)
+    pip_calls = [command for command in calls if "pip" in command[0]]
+    assert pip_calls and "--no-index" in pip_calls[0][0]
+    assert all(check is True for _command, check in calls)
 
 
 def test_park_node_packs_moves_resadapter_out_of_custom_nodes(tmp_path: Path) -> None:

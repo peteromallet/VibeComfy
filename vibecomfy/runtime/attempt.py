@@ -39,6 +39,7 @@ def build_attempt_bundle(
     adapter_endpoint: str | None = None,
     schema_provenance: Mapping[str, Any] | None = None,
     runtime_evidence: Mapping[str, Any] | None = None,
+    runtime_compatibility: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Collect the pre-queue attempt snapshot.
 
@@ -119,6 +120,20 @@ def build_attempt_bundle(
 
     # --- drift block (collected from live filesystem / git state) ----------
     drift: dict[str, Any] = _collect_drift_for_bundle(workflow)
+    # --- runtime dependency declaration and target comparison ---------------
+    from vibecomfy.runtime.dependencies import (
+        compare_runtime,
+        runtime_requirements_from_workflow,
+    )
+    runtime_requirements = runtime_requirements_from_workflow(workflow)
+    runtime_report = (
+        dict(runtime_compatibility)
+        if runtime_compatibility is not None
+        else compare_runtime(
+            runtime_requirements,
+            runtime_root=getattr(config, "runtime_root", None),
+        )
+    )
 
     result = {
         "adapter": {
@@ -139,6 +154,9 @@ def build_attempt_bundle(
         "comfy_commit": comfy_commit,
         "drift": drift,
     }
+    if runtime_requirements is not None:
+        result["runtime_requirements"] = runtime_requirements.to_dict()
+        result["runtime_compatibility"] = runtime_report
     if runtime_evidence is not None:
         result["runtime_evidence"] = dict(runtime_evidence)
     return result

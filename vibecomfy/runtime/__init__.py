@@ -9,6 +9,8 @@ from .run import (
     smoke_runtime_sync,
 )
 from .session import EmbeddedSession, RunResult, ServerSession, SessionConfig, apply_memory_profile_override
+from vibecomfy.contracts.runtime import RuntimeDependencyError, RuntimeRequirements
+from .dependencies import compare_runtime, inspect_runtime_target, sync_runtime
 
 __all__ = [
     "EmbeddedSession",
@@ -23,5 +25,10 @@ __all__ = [
     "run_embedded_sync",
     "run_embedded_with_session",
     "smoke_runtime",
+    "RuntimeDependencyError",
+    "RuntimeRequirements",
+    "compare_runtime",
+    "inspect_runtime_target",
+    "sync_runtime",
     "smoke_runtime_sync",
 ]

@@ -53,6 +53,8 @@ __all__ = [
     "validate_intent_node_contract",
     "validate_runtime_code_contract",
     "validate_typed_io_spec",
+    "RuntimeDependencyError",
+    "RuntimeRequirements",
 ]
 
 
@@ -93,6 +95,8 @@ _LAZY_ATTRS = {
     "VALIDATION_OK_COMPILES_API": ("vibecomfy.contracts.ir", "VALIDATION_OK_COMPILES_API"),
     "VALIDATION_REPORT_OK_FIELD": ("vibecomfy.contracts.ir", "VALIDATION_REPORT_OK_FIELD"),
     "WorkflowRuntimeContract": ("vibecomfy.contracts.model", "WorkflowRuntimeContract"),
+    "RuntimeDependencyError": ("vibecomfy.contracts.runtime", "RuntimeDependencyError"),
+    "RuntimeRequirements": ("vibecomfy.contracts.runtime", "RuntimeRequirements"),
     "WorkflowSummary": ("vibecomfy.contracts.summary", "WorkflowSummary"),
     "build_contract": ("vibecomfy.contracts.model", "build_contract"),
     "intent_node_payload_from_metadata": ("vibecomfy.contracts.intent_nodes", "intent_node_payload_from_metadata"),

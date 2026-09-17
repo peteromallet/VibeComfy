@@ -112,9 +112,24 @@ are written back to the same workflow source for the user to complete.
 
 Once the dependency report is resolved, `vibecomfy run` uses the existing model
 fetch, node-pack, lockfile, session, and bounded download plumbing automatically.
+`--deps reuse` is the default: it only compares the declared runtime target and
+emits one actionable drift warning; missing or demonstrably incompatible fields
+block before queueing. `--deps sync` is explicit and managed-target-only, and
+uses the existing preparation/install seams. Set `VIBECOMFY_OFFLINE=1` to make
+sync fail closed instead of attempting network access.
+Managed sync requires an existing VibeComfy-owned `runtime_root/.venv` or
+`runtime_root/venv` plus the `.vibecomfy-managed` marker written by the
+managed setup path; it never installs into an unrelated caller interpreter.
 `--runtime-root`, `--session`, `--keep-warm`, `--restart-session`,
 `--download-workers`, and `--json` remain available on the normal run command.
-Explicit `--server-url` runs are remote and non-mutating.
+Explicit `--server-url` runs are remote and non-mutating; unverifiable target
+fields are reported as such.
+
+The typed `requirements.runtime` declaration records the tested ComfyUI
+commit/version, Python version, package constraints, launch flags, model
+identities, and custom-node versions/commits. Legacy `metadata.python_env` and
+`metadata.comfy_commit` are normalized for compatibility; contradictory
+values fail at ingest rather than silently choosing one.
 
 The local repair loop is canonical and same-file: authored `ModelAsset` rows
 and `requirements.custom_node_refs` are the only dependency declarations.
@@ -126,8 +141,8 @@ root and nested graph classes are checked against core classes, declared
 `classes`/`class_set`, and an unambiguous local pack catalog. Gaps are reported
 with source locations and actionable same-file placeholders; dynamic forms
 remain manual-edit diagnostics. Warm sessions and bounded concurrency are
-preserved after reconciliation. RunPod/GPU acceptance and Astrid integration
-remain deferred and must not be claimed from local structural tests.
+preserved after reconciliation. Live RunPod/GPU acceptance remains an
+explicitly separate validation and is not claimed from local structural tests.
 
 ## Authoring Model
 

@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit
+from vibecomfy.contracts.runtime import RuntimeDependencyError, RuntimeRequirements
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
 from vibecomfy.utils import find_repo_root
 
@@ -72,13 +73,36 @@ def extract_ready_template_contract(
     metadata = _dict_or_empty(assignments.get("READY_METADATA"))
     metadata = _metadata_with_static_derivations(metadata, source_path, source)
     requirements = _dict_or_empty(assignments.get("READY_REQUIREMENTS"))
-    public_inputs: list[dict[str, Any]] = []
-    public_outputs: list[dict[str, Any]] = []
+    meta_reqs = _dict_or_empty(metadata.get("requirements"))
+    runtime_requirements: dict[str, Any] | None = None
+    try:
+        legacy_env = metadata.get("python_env")
+        legacy_commit = metadata.get("comfy_commit")
+        runtime = _merge_static_runtime_requirements(
+            requirements.get("runtime"),
+            meta_reqs.get("runtime"),
+            legacy_python_env=legacy_env if isinstance(legacy_env, dict) else None,
+            legacy_comfy_commit=legacy_commit if isinstance(legacy_commit, str) else None,
+        )
+        runtime_requirements = runtime.to_dict() if runtime is not None else None
+    except RuntimeDependencyError as exc:
+        diagnostics.append({
+            "code": "static_runtime_contract_invalid",
+            "severity": "error",
+            "message": str(exc),
+            "location": _source_location(
+                source_path,
+                _runtime_contract_locations(tree).get("runtime", tree),
+                semantic_path="requirements.runtime",
+            ),
+        })
 
     # ── Derive public_inputs from PUBLIC_INPUTS/InputSpec when present ──
     # Generated templates use either ``PUBLIC_INPUT_METADATA`` (canonical
     # post-revert shape) or the legacy ``PUBLIC_INPUTS`` alias.  Try the new
     # name first and fall back to the old.
+    public_inputs: list[dict[str, Any]] = []
+    public_outputs: list[dict[str, Any]] = []
     public_inputs_dict = assignments.get("PUBLIC_INPUT_METADATA") or assignments.get("PUBLIC_INPUTS")
     if isinstance(public_inputs_dict, dict):
         for name, spec in public_inputs_dict.items():
@@ -133,8 +157,9 @@ def extract_ready_template_contract(
         )
     )
 
-    # Merge requirements from metadata (ReadyMetadata.build may include them)
-    meta_reqs = _dict_or_empty(metadata.get("requirements"))
+    # The runtime declaration may be authored in READY_REQUIREMENTS or in the
+    # nested ReadyMetadata requirements block.  Both are declarations, so
+    # retain both and surface contradictions instead of silently preferring one.
     merged_models = _list_items(requirements.get("models")) + _list_items(meta_reqs.get("models"))
     reqs_normalized, _warnings = normalize_custom_node_requirements(requirements)
     meta_reqs_normalized, _meta_warnings = normalize_custom_node_requirements(meta_reqs)
@@ -162,6 +187,7 @@ def extract_ready_template_contract(
         "model_assets": model_assets,
         "hardware": metadata.get("hardware") if isinstance(metadata.get("hardware"), dict) else {},
         "python_env": metadata.get("python_env") if isinstance(metadata.get("python_env"), dict) else {},
+        "runtime": runtime_requirements,
         "app_active": _is_app_active(metadata),
         "blocked": _has_marker(metadata, "blocked"),
         "reference": _has_marker(metadata, "reference"),
@@ -179,6 +205,45 @@ def extract_ready_template_contract(
     if merged_custom_node_refs:
         summary["custom_node_refs"] = merged_custom_node_refs
     return summary
+
+
+def _merge_static_runtime_requirements(
+    *raw_values: Any,
+    legacy_python_env: Mapping[str, Any] | None = None,
+    legacy_comfy_commit: str | None = None,
+) -> RuntimeRequirements | None:
+    merged: dict[str, Any] = {}
+    for raw in raw_values:
+        if raw is None:
+            continue
+        current = RuntimeRequirements.from_dict(
+            raw,
+            legacy_python_env=legacy_python_env,
+            legacy_comfy_commit=legacy_comfy_commit,
+        )
+        if current is None:
+            continue
+        current_dict = current.to_dict()
+        for key, value in current_dict.items():
+            if key == "packages" and isinstance(value, Mapping):
+                packages = merged.setdefault("packages", {})
+                if not isinstance(packages, dict):
+                    raise RuntimeDependencyError("runtime packages declaration contradicts its other runtime declaration")
+                for name, constraint in value.items():
+                    if name in packages and packages[name] != constraint:
+                        raise RuntimeDependencyError(
+                            f"runtime package {name!r} declarations contradict each other"
+                        )
+                    packages[name] = constraint
+                continue
+            if key in merged and merged[key] != value:
+                raise RuntimeDependencyError(f"runtime {key} declarations contradict each other")
+            merged[key] = value
+    return RuntimeRequirements.from_dict(
+        merged or None,
+        legacy_python_env=legacy_python_env,
+        legacy_comfy_commit=legacy_comfy_commit,
+    )
 
 
 def _extract_finalize_outputs(
@@ -1198,6 +1263,82 @@ def _requirement_locations(value: ast.AST, path: Path, owner: str) -> list[dict[
     return locations
 
 
+def _runtime_contract_locations(tree: ast.AST) -> dict[str, ast.AST]:
+    """Find literal runtime/legacy fields without importing the source."""
+    locations: dict[str, ast.AST] = {}
+    for assignment in getattr(tree, "body", ()):
+        if not isinstance(assignment, ast.Assign):
+            continue
+        owners = {target.id for target in assignment.targets if isinstance(target, ast.Name)}
+        value = assignment.value
+        requirement_nodes: list[ast.Dict] = []
+        if "READY_REQUIREMENTS" in owners and isinstance(value, ast.Dict):
+            requirement_nodes.append(value)
+        if "READY_METADATA" in owners:
+            if isinstance(value, ast.Call):
+                for keyword in value.keywords:
+                    if keyword.arg == "requirements" and isinstance(keyword.value, ast.Dict):
+                        requirement_nodes.append(keyword.value)
+                    elif keyword.arg in {"python_env", "comfy_commit"}:
+                        locations.setdefault(f"metadata.{keyword.arg}", keyword.value)
+            elif isinstance(value, ast.Dict):
+                fields = _dict_field_nodes(value)
+                nested = fields.get("requirements")
+                if isinstance(nested, ast.Dict):
+                    requirement_nodes.append(nested)
+                for key in ("python_env", "comfy_commit"):
+                    if key in fields:
+                        locations.setdefault(f"metadata.{key}", fields[key])
+        for requirement in requirement_nodes:
+            fields = _dict_field_nodes(requirement)
+            if "runtime" in fields:
+                locations.setdefault("runtime", fields["runtime"])
+                index = sum(
+                    1 for key in locations if key == "runtime" or key.startswith("runtime.")
+                )
+                locations[f"runtime.{index}"] = fields["runtime"]
+    return locations
+
+
+def _runtime_contract_diagnostics(tree: ast.AST, path: Path) -> list[dict[str, Any]]:
+    locations = _runtime_contract_locations(tree)
+    runtime_node = locations.get("runtime")
+    runtime_nodes = [
+        node for key, node in locations.items()
+        if key == "runtime" or key.startswith("runtime.")
+    ]
+    legacy_env_node = locations.get("metadata.python_env")
+    legacy_commit_node = locations.get("metadata.comfy_commit")
+    if runtime_node is None and legacy_env_node is None and legacy_commit_node is None:
+        return []
+    runtime_raw_values = [_literal_value(node, {}) for node in runtime_nodes]
+    legacy_env = _literal_value(legacy_env_node, {}) if legacy_env_node is not None else None
+    legacy_commit = _literal_value(legacy_commit_node, {}) if legacy_commit_node is not None else None
+    if any(value is _UNSUPPORTED for value in runtime_raw_values) or legacy_env is _UNSUPPORTED or legacy_commit is _UNSUPPORTED:
+        node = runtime_node or legacy_env_node or legacy_commit_node or tree
+        return [{
+            "code": "static_dynamic_value",
+            "severity": "error",
+            "message": "runtime dependency declaration contains a dynamic value; use literal runtime facts",
+            "location": _source_location(path, node, semantic_path="requirements.runtime"),
+        }]
+    try:
+        _merge_static_runtime_requirements(
+            *runtime_raw_values,
+            legacy_python_env=legacy_env if isinstance(legacy_env, Mapping) else None,
+            legacy_comfy_commit=legacy_commit if isinstance(legacy_commit, str) else None,
+        )
+    except RuntimeDependencyError as exc:
+        node = runtime_node or legacy_env_node or legacy_commit_node or tree
+        return [{
+            "code": "static_runtime_contract_invalid",
+            "severity": "error",
+            "message": str(exc),
+            "location": _source_location(path, node, semantic_path="requirements.runtime"),
+        }]
+    return []
+
+
 def reconcile_ready_template_source(
     source: str,
     *,
@@ -1253,7 +1394,10 @@ def reconcile_ready_template_source(
     contract = None
     wrappers: dict[str, str] = {}
     edits: list[dict[str, Any]] = []
-    diagnostics: list[dict[str, Any]] = _dependency_container_diagnostics(tree, path)
+    diagnostics: list[dict[str, Any]] = [
+        *_dependency_container_diagnostics(tree, path),
+        *_runtime_contract_diagnostics(tree, path),
+    ]
     blockers: list[dict[str, Any]] = []
 
     model_calls = _model_asset_call_records(tree, path)

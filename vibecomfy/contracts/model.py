@@ -60,10 +60,14 @@ class WorkflowRuntimeContract:
     runtime_class_types: list[str] = field(default_factory=list)
     runtime_packages: list[dict[str, Any]] = field(default_factory=list)
     comfy_configuration: dict[str, Any] = field(default_factory=dict)
+    runtime: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        if result.get("runtime") is None:
+            result.pop("runtime", None)
+        return result
 
 
 def build_contract(workflow: VibeWorkflow) -> WorkflowRuntimeContract:
@@ -84,11 +88,21 @@ def build_contract(workflow: VibeWorkflow) -> WorkflowRuntimeContract:
         model_assets = [
             {"name": str(model_name)} for model_name in workflow.requirements.models
         ]
+    elif getattr(workflow.requirements, "runtime", None) is not None:
+        model_assets = [dict(item) for item in workflow.requirements.runtime.models]
     else:
         model_assets = []
 
-    # Runtime packages
+    # Runtime package declarations are also exposed through the older
+    # descriptive contract field for consumers that have not adopted
+    # ``requirements.runtime`` yet.
     raw_runtime_packages = workflow.metadata.get("runtime_packages") or []
+    runtime_declared = getattr(workflow.requirements, "runtime", None)
+    if not raw_runtime_packages and runtime_declared is not None:
+        raw_runtime_packages = [
+            {"name": name, "constraint": constraint}
+            for name, constraint in runtime_declared.packages
+        ]
     if isinstance(raw_runtime_packages, list):
         runtime_packages = [
             _coerce_dict_values(pkg) if isinstance(pkg, dict) else {"name": str(pkg)}
@@ -123,6 +137,13 @@ def build_contract(workflow: VibeWorkflow) -> WorkflowRuntimeContract:
         outputs_list.append(out_dict)
 
     public_inputs = serialize_public_inputs(workflow)
+    declared_custom_nodes = list(workflow.requirements.custom_nodes)
+    if runtime_declared is not None:
+        declared_custom_nodes.extend(
+            str(item.get("name", item.get("slug", "")))
+            for item in runtime_declared.custom_nodes
+            if item.get("name") or item.get("slug")
+        )
     public_outputs = serialize_public_outputs(workflow)
     graph_contract = serialize_graph_contract(workflow)
 
@@ -133,13 +154,15 @@ def build_contract(workflow: VibeWorkflow) -> WorkflowRuntimeContract:
     runtime_nodes_dict = workflow.runtime_nodes()
     runtime_node_ids = sorted(runtime_nodes_dict.keys())
 
+    from vibecomfy.runtime.dependencies import runtime_requirements_from_workflow
+    runtime_decl = runtime_requirements_from_workflow(workflow)
     return WorkflowRuntimeContract(
         version=1,
         workflow_id=workflow.id,
         source=_coerce_dict_values(asdict(workflow.source)),
         readiness_level=readiness_level,
         model_assets=model_assets,
-        custom_nodes=sorted(workflow.requirements.custom_nodes),
+        custom_nodes=sorted(set(declared_custom_nodes)),
         inputs=inputs_list,
         outputs=outputs_list,
         public_inputs=public_inputs,
@@ -149,6 +172,7 @@ def build_contract(workflow: VibeWorkflow) -> WorkflowRuntimeContract:
         runtime_class_types=runtime_rt,
         runtime_packages=runtime_packages,
         comfy_configuration=comfy_configuration,
+        runtime=runtime_decl.to_dict() if runtime_decl is not None else None,
         metadata={
             "ready_template": workflow.metadata.get("ready_template"),
             "capability": workflow.metadata.get("capability"),

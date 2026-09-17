@@ -4,11 +4,12 @@ import asyncio
 import concurrent.futures
 import json
 import logging
+import os
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from vibecomfy.errors import QueueError
 from vibecomfy.workflow import VibeWorkflow
@@ -40,11 +41,119 @@ from .session import (
     _run_metadata,
     _schema_provider_provenance,
     _schema_warn_only,
+    _comfy_server_argv,
     _wait_for_server_history,
     _workflow_queue_failure_message,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _dependency_check(
+    workflow: VibeWorkflow,
+    *,
+    config: SessionConfig,
+    dependency_mode: str,
+    server_url: str | None,
+    target: Mapping[str, Any] | None = None,
+    dependency_report: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    from .dependencies import (
+        RuntimeDependencyError,
+        compare_runtime,
+        runtime_requirements_from_workflow,
+        sync_runtime,
+    )
+
+    if dependency_mode not in {"reuse", "sync"}:
+        raise RuntimeDependencyError("dependency mode must be reuse or sync")
+    requirements = runtime_requirements_from_workflow(workflow)
+    if dependency_report is not None:
+        report = dict(dependency_report)
+        report.setdefault("mode", dependency_mode)
+        report.setdefault("changes", [])
+        if requirements is not None:
+            external_target = server_url is not None and not (
+                isinstance(target, Mapping) and target.get("managed") is True
+            )
+            observed = compare_runtime(
+                requirements,
+                target=target if target is not None else ({} if external_target else None),
+                runtime_root=None if external_target else config.runtime_root,
+            )
+            for key in ("mode", "actions", "synced", "managed", "changes"):
+                if key in report:
+                    observed[key] = report[key]
+            report = observed
+    else:
+        external_target = server_url is not None and not (
+            isinstance(target, Mapping) and target.get("managed") is True
+        )
+        report = compare_runtime(
+            requirements,
+            target=target if target is not None else ({} if external_target else None),
+            runtime_root=config.runtime_root,
+        )
+    if requirements is not None:
+        report = dict(report)
+        report.setdefault("mode", dependency_mode)
+        report.setdefault("changes", [])
+    if dependency_mode == "sync" and requirements is not None:
+        if external_target:
+            raise RuntimeDependencyError(
+                "--deps sync is unavailable for an explicit external server; use --deps reuse"
+            )
+        if dependency_report is not None:
+            # The CLI may have synchronized before preparation/session
+            # startup. Never synchronize again through a target that may
+            # already be an active managed server; the post-start comparison
+            # below is the verification boundary.
+            if report.get("mode") != "sync":
+                raise RuntimeDependencyError(
+                    "--deps sync requires a synchronized dependency report or a managed target"
+                )
+            if report.get("status") not in {"matching", "unverified"}:
+                exc = RuntimeDependencyError(
+                    "runtime dependencies are not compatible with this target: "
+                    + "; ".join(str(item) for item in report.get("mismatches", ()))
+                )
+                setattr(exc, "dependency_report", report)
+                raise exc
+            # Preserve the prior sync actions/receipt fields exactly.
+            pass
+        else:
+            try:
+                report = sync_runtime(
+                    requirements,
+                    runtime_root=config.runtime_root,
+                    target=target,
+                    offline=os.environ.get("VIBECOMFY_OFFLINE") == "1",
+                    launch_flags=(
+                        list(requirements.launch_flags)
+                        if requirements.launch_flags
+                        else (
+                            list(config.extra["launch_flags"])
+                            if isinstance(config.extra.get("launch_flags"), (list, tuple))
+                            else None
+                        )
+                    ),
+                )
+            except RuntimeDependencyError as exc:
+                failure_report = getattr(exc, "dependency_report", None)
+                if not isinstance(failure_report, Mapping):
+                    failure_report = report
+                setattr(exc, "dependency_report", failure_report)
+                raise
+    if report.get("warnings"):
+        logger.warning("%s", report["warnings"][0])
+    if not report.get("ok", True):
+        exc = RuntimeDependencyError(
+            "runtime dependencies are not compatible with this target: "
+            + "; ".join(str(item) for item in report.get("mismatches", ()))
+        )
+        setattr(exc, "dependency_report", report)
+        raise exc
+    return report
 
 
 def _allocate_run_dir(
@@ -77,6 +186,9 @@ async def run(
     chain_id: str | None = None,
     parent_run_id: str | None = None,
     schema_provider: Any | None = None,
+    dependency_mode: str = "reuse",
+    runtime_target: Mapping[str, Any] | None = None,
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> RunResult:
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
@@ -88,6 +200,43 @@ async def run(
     # a local path that this adapter never created.
     log_path = run_dir / "comfy.log" if server_url is None else None
     managed_config = resolved_config if server_url is None else None
+    try:
+        dependency_report = _dependency_check(
+            workflow,
+            config=resolved_config,
+            dependency_mode=dependency_mode,
+            server_url=server_url,
+            target=runtime_target,
+            dependency_report=dependency_report,
+        )
+    except RuntimeDependencyError as exc:
+        dependency_report = getattr(exc, "dependency_report", None)
+        if not isinstance(dependency_report, Mapping):
+            dependency_report = {
+                "declared": True, "mode": dependency_mode, "status": "error",
+                "checks": [], "mismatches": [], "warnings": [], "changes": [],
+                "error": str(exc),
+            }
+        try:
+            attempt_bundle, journal_state, journal_generation, _initial = _begin_runtime_lifecycle(
+                run_dir=run_dir, run_id=run_id, record=record, bundle=bundle,
+                adapter_kind="external" if server_url is not None else "managed",
+                backend=backend, endpoint=server_url,
+                dependency_report=dependency_report,
+            )
+            _persist_runtime_failure(
+                run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                run_id=run_id, record=record, generation=journal_generation,
+                original_error=exc,
+                queue_acceptance={"status": "not_attempted", "prompt_id": None},
+                phase="dependencies", exc=exc,
+            )
+        except Exception:
+            logger.exception("could not persist dependency failure receipt for %s", run_id)
+        raise
+    runtime_declared = getattr(workflow.requirements, "runtime", None)
+    if runtime_declared is not None and runtime_declared.launch_flags:
+        resolved_config.extra["launch_flags"] = list(runtime_declared.launch_flags)
     policy = resolve_model_preflight_policy(
         mode="managed_local_server" if server_url is None else "explicit_remote_server_unverified",
         ensure_models=ensure_models,
@@ -103,10 +252,49 @@ async def run(
             adapter_kind=adapter_kind,
             backend=backend,
             endpoint=active_url,
+            dependency_report=dependency_report,
         )
+        if runtime_declared is not None and server_url is None:
+            from .dependencies import RuntimeDependencyError, compare_runtime, inspect_runtime_target
+
+            started_target = inspect_runtime_target(
+                runtime_root=resolved_config.runtime_root,
+                package_names=[name for name, _constraint in runtime_declared.packages],
+            )
+            # comfy_server uses this exact argv builder for the process it just
+            # started; retain the complete argv as the launch observation so
+            # declared flags are verified against the selected process.
+            started_target["launch_flags"] = list(_comfy_server_argv(resolved_config))
+            started_target["managed"] = True
+            started_report = compare_runtime(
+                runtime_declared,
+                target=started_target,
+                runtime_root=resolved_config.runtime_root,
+            )
+            started_report["mode"] = dependency_report.get("mode", dependency_mode)
+            started_report["changes"] = list(dependency_report.get("changes", []))
+            for key in ("actions", "synced", "managed"):
+                if key in dependency_report:
+                    started_report[key] = dependency_report[key]
+            dependency_report = started_report
+            if not started_report.get("ok", True):
+                exc = RuntimeDependencyError(
+                    "started managed runtime is not compatible with this workflow: "
+                    + "; ".join(str(item) for item in started_report.get("mismatches", ()))
+                )
+                setattr(exc, "dependency_report", started_report)
+                _persist_runtime_failure(
+                    run_dir=run_dir, attempt_bundle=attempt_bundle, state=journal_state,
+                    run_id=run_id, record=record, generation=journal_generation,
+                    original_error=exc,
+                    queue_acceptance={"status": "not_attempted", "prompt_id": None},
+                    phase="dependencies", exc=exc,
+                )
+                raise exc
         schema_provenance = _schema_provider_provenance(None)
         queue_acceptance = {"status": "not_attempted", "prompt_id": None}
         warned = {"emitted": False}
+        dependency_report = dict(dependency_report)
         phase = "schema"
 
         def on_unavailable(msg: str) -> None:
@@ -116,6 +304,8 @@ async def run(
             warned["emitted"] = True
 
         try:
+            attempt_bundle["dependency_report"] = dependency_report
+            write_attempt_json(run_dir, attempt_bundle)
             apply_model_preflight(workflow, policy)
             provider = schema_provider if schema_provider is not None else _build_schema_provider(active_url)
             api_dict = await _prepare_prompt_async(
@@ -132,6 +322,7 @@ async def run(
                 adapter_kind=adapter_kind,
                 backend=backend,
                 endpoint=active_url,
+                dependency_report=dependency_report,
                 schema_provenance=schema_provenance,
                 queue_acceptance=queue_acceptance,
                 terminal={"phase": "prepared", "reason_type": "none", "reason": None, "acceptance_known": False},
@@ -145,6 +336,7 @@ async def run(
                 adapter_endpoint=active_url,
                 schema_provenance=schema_provenance,
                 runtime_evidence=evidence,
+                runtime_compatibility=dependency_report,
             )
             _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
             phase = "drift"
@@ -206,6 +398,7 @@ async def run(
                 artifacts=artifacts,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
+                dependency_report=dependency_report,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -213,6 +406,7 @@ async def run(
                 adapter_kind=adapter_kind, backend=backend, endpoint=active_url,
                 schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
                 metadata=metadata,
+                dependency_report=dependency_report,
             )
             return RunResult(
                 run_id=run_id,
@@ -260,6 +454,9 @@ def run_sync(
     chain_id: str | None = None,
     parent_run_id: str | None = None,
     schema_provider: Any | None = None,
+    dependency_mode: str = "reuse",
+    runtime_target: Mapping[str, Any] | None = None,
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> RunResult:
     kwargs = {
         "server_url": server_url,
@@ -273,8 +470,14 @@ def run_sync(
     }
     if schema_provider is not None:
         kwargs["schema_provider"] = schema_provider
-    return asyncio.run(run(record, bundle, **kwargs))
+    if dependency_mode != "reuse":
 
+        kwargs["dependency_mode"] = dependency_mode
+    if runtime_target is not None:
+        kwargs["runtime_target"] = runtime_target
+    if dependency_report is not None:
+        kwargs["dependency_report"] = dependency_report
+    return asyncio.run(run(record, bundle, **kwargs))
 
 async def run_embedded(
     record: ApprovedProjectionRecord,
@@ -287,22 +490,27 @@ async def run_embedded(
     strict_drift: bool | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
+    dependency_mode: str = "reuse",
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> RunResult:
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
     bundle.require_canonical_authority("runtime execution")
     session = EmbeddedSession(config or SessionConfig.from_workflow_metadata(bundle.workflow))
     try:
-        return await session.run(
-            record,
-            bundle,
-            backend=backend,
-            ensure_packs=ensure_packs,
-            ensure_models=ensure_models,
-            strict_drift=strict_drift,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
-        )
+        kwargs: dict[str, Any] = {
+            "backend": backend,
+            "ensure_packs": ensure_packs,
+            "ensure_models": ensure_models,
+            "strict_drift": strict_drift,
+            "chain_id": chain_id,
+            "parent_run_id": parent_run_id,
+        }
+        if dependency_mode != "reuse":
+            kwargs["dependency_mode"] = dependency_mode
+        if dependency_report is not None:
+            kwargs["dependency_report"] = dependency_report
+        return await session.run(record, bundle, **kwargs)
     finally:
         await session.stop()
 
@@ -318,27 +526,26 @@ async def run_embedded_with_session(
     strict_drift: bool | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
+    dependency_mode: str = "reuse",
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> RunResult:
-    """Run one task on a caller-owned embedded session without stopping it.
-
-    The one-shot ``run_embedded`` API remains unchanged.  This explicit
-    session-scoped entry point is the production seam for a host that owns one
-    event loop and rebinds task output configuration between serial claims.
-    """
+    """Run one task on a caller-owned embedded session without stopping it."""
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
     bundle.require_canonical_authority("runtime execution")
-    return await session.run(
-        record,
-        bundle,
-        backend=backend,
-        ensure_packs=ensure_packs,
-        ensure_models=ensure_models,
-        strict_drift=strict_drift,
-        chain_id=chain_id,
-        parent_run_id=parent_run_id,
-    )
-
+    kwargs: dict[str, Any] = {
+        "backend": backend,
+        "ensure_packs": ensure_packs,
+        "ensure_models": ensure_models,
+        "strict_drift": strict_drift,
+        "chain_id": chain_id,
+        "parent_run_id": parent_run_id,
+    }
+    if dependency_mode != "reuse":
+        kwargs["dependency_mode"] = dependency_mode
+    if dependency_report is not None:
+        kwargs["dependency_report"] = dependency_report
+    return await session.run(record, bundle, **kwargs)
 
 class EmbeddedSessionOwner:
     """Host-owned serial ``EmbeddedSession`` with one persistent event loop.
@@ -431,6 +638,8 @@ class EmbeddedSessionOwner:
         strict_drift: bool | None,
         chain_id: str | None,
         parent_run_id: str | None,
+        dependency_mode: str,
+        dependency_report: Mapping[str, Any] | None,
     ) -> RunResult:
         selected = config or self._config
         if self._session is None:
@@ -450,6 +659,8 @@ class EmbeddedSessionOwner:
             strict_drift=strict_drift,
             chain_id=chain_id,
             parent_run_id=parent_run_id,
+            dependency_mode=dependency_mode,
+            dependency_report=dependency_report,
         )
 
     def run(
@@ -464,6 +675,8 @@ class EmbeddedSessionOwner:
         strict_drift: bool | None = None,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
+        dependency_mode: str = "reuse",
+        dependency_report: Mapping[str, Any] | None = None,
     ) -> RunResult:
         return self._submit(
             self._run(
@@ -476,6 +689,8 @@ class EmbeddedSessionOwner:
                 strict_drift=strict_drift,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
+                dependency_mode=dependency_mode,
+                dependency_report=dependency_report,
             )
         )
 
@@ -515,20 +730,23 @@ def run_embedded_sync(
     strict_drift: bool | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
+    dependency_mode: str = "reuse",
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> RunResult:
-    return asyncio.run(
-        run_embedded(
-            record,
-            bundle,
-            backend=backend,
-            config=config,
-            ensure_packs=ensure_packs,
-            ensure_models=ensure_models,
-            strict_drift=strict_drift,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
-        )
-    )
+    kwargs: dict[str, Any] = {
+        "backend": backend,
+        "config": config,
+        "ensure_packs": ensure_packs,
+        "ensure_models": ensure_models,
+        "strict_drift": strict_drift,
+        "chain_id": chain_id,
+        "parent_run_id": parent_run_id,
+    }
+    if dependency_mode != "reuse":
+        kwargs["dependency_mode"] = dependency_mode
+    if dependency_report is not None:
+        kwargs["dependency_report"] = dependency_report
+    return asyncio.run(run_embedded(record, bundle, **kwargs))
 
 
 async def smoke_runtime(*, server_url: str | None = None) -> dict[str, Any]:

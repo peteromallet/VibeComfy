@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 import tomllib
 
+from vibecomfy.contracts.runtime import RuntimeDependencyError
 from vibecomfy.registry import models_loader
 
 
@@ -51,6 +52,7 @@ RUNTIME_SUBDIRS = (
     "disabled_custom_nodes",
     "models",
 )
+MANAGED_RUNTIME_MARKER = ".vibecomfy-managed"
 LTX_NODE_PACKS = (
     "ComfyUI-LTXVideo",
     "ComfyUI-KJNodes",
@@ -88,9 +90,13 @@ def ensure_runtime_layout(*, runtime_root: Path, dry_run: bool = False) -> dict[
     if not dry_run:
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)
+        (runtime_root / MANAGED_RUNTIME_MARKER).write_text(
+            "vibecomfy-managed-runtime-v1\n", encoding="utf-8"
+        )
     else:
         for path in paths.values():
             print(f"mkdir -p {path}")
+        print(f"write {runtime_root / MANAGED_RUNTIME_MARKER}")
     return paths
 
 
@@ -161,6 +167,7 @@ def comfy_serve_command(
     external_address: str | None,
     port: int = 19123,
     comfyui_executable: str = "comfyui",
+    launch_flags: Sequence[str] | None = None,
 ) -> list[str]:
     command = [
         comfyui_executable,
@@ -182,11 +189,12 @@ def comfy_serve_command(
         "--user-directory",
         str(runtime_root / "user"),
         "--enable-manager",
-        "--lowvram",
-        "--reserve-vram",
-        "2",
         "--log-stdout",
     ]
+    if launch_flags is None:
+        command.extend(["--lowvram", "--reserve-vram", "2"])
+    else:
+        command.extend(str(flag) for flag in launch_flags if str(flag).strip())
     if external_address:
         command.extend(["--external-address", external_address])
     return command
@@ -265,7 +273,8 @@ def unpark_node_packs(
     node_packs: Sequence[str] = BASELINE_PARKED_NODE_PACKS,
     dry_run: bool = False,
 ) -> list[ParkedNodePack]:
-    custom_nodes.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        custom_nodes.mkdir(parents=True, exist_ok=True)
     results: list[ParkedNodePack] = []
     for name in node_packs:
         source = disabled_custom_nodes / name
@@ -319,10 +328,12 @@ def install_node_packs(
     node_packs: Sequence[str] = LTX_NODE_PACKS,
     python: str = sys.executable,
     install_requirements: bool = True,
+    offline: bool = False,
     dry_run: bool = False,
 ) -> list[InstalledNodePack]:
     lock = _load_node_lock(lockfile)
-    custom_nodes.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        custom_nodes.mkdir(parents=True, exist_ok=True)
     installed: list[InstalledNodePack] = []
     for name in node_packs:
         raw = lock.get(name)
@@ -331,20 +342,33 @@ def install_node_packs(
         url = _required_lock_str(raw, "url", name)
         commit = _required_lock_str(raw, "git_commit_sha", name)
         target = custom_nodes / name
+        requirements = target / "requirements.txt"
         changed = False
         if not target.exists():
+            if offline and not dry_run:
+                raise RuntimeDependencyError(
+                    f"offline node-pack installation requires an existing checkout: {target}"
+                )
             _run(["git", "clone", url, str(target)], dry_run=dry_run)
             changed = True
         if target.exists() or dry_run:
-            _run(["git", "-C", str(target), "fetch", "--depth", "1", "origin", commit], dry_run=dry_run, check=False)
+            if not offline:
+                _run(["git", "-C", str(target), "fetch", "--depth", "1", "origin", commit], dry_run=dry_run, check=False)
             _run(["git", "-C", str(target), "checkout", "--force", commit], dry_run=dry_run)
         if install_requirements:
-            requirements = target / "requirements.txt"
+            if offline and requirements.exists():
+                _reject_network_requirement_sources(requirements)
             if requirements.exists() or dry_run:
-                _run([python, "-m", "pip", "install", "--no-deps", "-r", str(requirements)], dry_run=dry_run, check=False)
+                pip_args = [python, "-m", "pip", "install", "--no-deps"]
+                if offline:
+                    pip_args.append("--no-index")
+                _run([*pip_args, "-r", str(requirements)], dry_run=dry_run)
             compat_deps = NODE_PACK_COMPAT_DEPS.get(name, ())
             if compat_deps:
-                _run([python, "-m", "pip", "install", *compat_deps], dry_run=dry_run, check=False)
+                pip_args = [python, "-m", "pip", "install"]
+                if offline:
+                    pip_args.append("--no-index")
+                _run([*pip_args, *compat_deps], dry_run=dry_run)
         installed.append(InstalledNodePack(name=name, path=target, url=url, commit=commit, changed=changed))
     return installed
 
@@ -356,7 +380,7 @@ def link_vibecomfy_custom_node(
     link_name: str = "vibecomfy_custom_nodes",
     dry_run: bool = False,
 ) -> LinkedCustomNode:
-    root = package_root or Path(__file__).resolve().parents[1]
+    root = package_root or Path(__file__).resolve().parents[2]
     source = root / "vibecomfy" / "comfy_nodes"
     if not source.exists():
         raise FileNotFoundError(f"VibeComfy custom node source not found: {source}")
@@ -394,6 +418,50 @@ def _required_lock_str(raw: dict[str, object], key: str, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{name}: lockfile field {key!r} must be a non-empty string")
     return value
+
+
+def _reject_network_requirement_sources(
+    path: Path, *, _seen: set[Path] | None = None
+) -> None:
+    """Fail before pip can follow direct or included network sources offline."""
+    seen = _seen or set()
+    resolved = path.resolve(strict=False)
+    if resolved in seen or not path.is_file():
+        return
+    seen.add(resolved)
+    network_prefixes = (
+        "http://", "https://", "git+", "ssh://", "--index-url",
+        "--extra-index-url", "--find-links",
+    )
+    include_options = {"-r", "--requirement", "-c", "--constraint"}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if (
+            lower.startswith(network_prefixes)
+            or any(token in lower for token in ("http://", "https://", "git+", "ssh://"))
+        ):
+            raise RuntimeDependencyError(
+                f"offline node-pack installation refuses network requirement source in {path}"
+            )
+        include_ref: str | None = None
+        tokens = line.split(None, 1)
+        option = tokens[0].lower()
+        if option in include_options and len(tokens) == 2:
+            include_ref = tokens[1].strip()
+        elif lower.startswith(("--requirement=", "--constraint=")):
+            include_ref = line.split("=", 1)[1].strip()
+        elif lower.startswith("-r") and not lower.startswith("--"):
+            include_ref = line[2:].strip()
+        elif lower.startswith("-c") and not lower.startswith("--"):
+            include_ref = line[2:].strip()
+        if include_ref:
+            included = Path(include_ref)
+            if not included.is_absolute():
+                included = path.parent / included
+            _reject_network_requirement_sources(included, _seen=seen)
 
 
 def _run(cmd: Sequence[str], *, dry_run: bool, check: bool = True) -> subprocess.CompletedProcess[str] | None:

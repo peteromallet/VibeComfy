@@ -25,14 +25,18 @@ class PreparationPlan:
     models: tuple[dict[str, Any], ...] = ()
     custom_nodes: tuple[str, ...] = ()
     actions: tuple[dict[str, Any], ...] = ()
+    runtime: dict[str, Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        result = {
             "workflow": self.workflow,
             "models": [dict(entry) for entry in self.models],
             "custom_nodes": list(self.custom_nodes),
             "actions": [dict(action) for action in self.actions],
         }
+        if self.runtime is not None:
+            result["runtime"] = dict(self.runtime)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +75,8 @@ def _model_entries(workflow: Any) -> tuple[dict[str, Any], ...]:
     authored = metadata.get("model_assets") if isinstance(metadata, Mapping) else None
     requirements = getattr(workflow, "requirements", None)
     declared = getattr(requirements, "models", ())
+    runtime = getattr(requirements, "runtime", None)
+    runtime_models = getattr(runtime, "models", ()) if runtime is not None else ()
     # Preparation consumes only source-backed rows already present in the
     # canonical IR.  In particular, it must not turn a picker filename into a
     # URL by consulting a model registry.  Metadata is preferred because it is
@@ -78,10 +84,11 @@ def _model_entries(workflow: Any) -> tuple[dict[str, Any], ...]:
     # fallback for older envelopes.
     if isinstance(authored, list) and authored:
         entries = authored
-    elif isinstance(declared, (list, tuple)):
+    elif isinstance(declared, (list, tuple)) or isinstance(runtime_models, (list, tuple)):
+        source_entries = list(declared) + list(runtime_models)
         entries = [
             item if isinstance(item, Mapping) else {"name": item}
-            for item in declared
+            for item in source_entries
             if isinstance(item, (Mapping, str))
         ]
     else:
@@ -112,7 +119,16 @@ def build_plan(
 ) -> PreparationPlan:
     models = _model_entries(workflow)
     requirements = getattr(workflow, "requirements", None)
-    custom_nodes = _normalise_names(getattr(requirements, "custom_nodes", ()))
+    runtime = getattr(requirements, "runtime", None)
+    custom_nodes_raw = list(getattr(requirements, "custom_nodes", ()))
+    if runtime is not None:
+        custom_nodes_raw.extend(
+            str(item.get("name", item.get("slug", "")))
+            for item in getattr(runtime, "custom_nodes", ())
+            if isinstance(item, Mapping)
+        )
+    custom_nodes = _normalise_names(custom_nodes_raw)
+    runtime_decl = getattr(runtime, "to_dict", lambda: None)() if runtime is not None else None
     actions: list[dict[str, Any]] = []
     if ensure_packs and custom_nodes:
         actions.append({"kind": "custom_nodes", "status": "planned", "count": len(custom_nodes)})
@@ -122,6 +138,7 @@ def build_plan(
         workflow=str(reference),
         models=models,
         custom_nodes=custom_nodes,
+        runtime=runtime_decl,
         actions=tuple(actions),
     )
 
@@ -136,6 +153,7 @@ def prepare_workflow(
     session_id: str | None = None,
     download_workers: int | None = None,
     quiet: bool = False,
+    runtime_dependency_report: Mapping[str, Any] | None = None,
 ) -> PreparationResult:
     """Prepare once per runtime root, serializing setup across callers."""
     from vibecomfy.runtime.locks import resource_lock
@@ -155,6 +173,7 @@ def prepare_workflow(
             session_id=session_id,
             download_workers=download_workers,
             quiet=quiet,
+            runtime_dependency_report=runtime_dependency_report,
         )
 
 
@@ -168,6 +187,7 @@ def _prepare_workflow_unlocked(
     session_id: str | None = None,
     download_workers: int | None = None,
     quiet: bool = False,
+    runtime_dependency_report: Mapping[str, Any] | None = None,
 ) -> PreparationResult:
     """Prepare canonical dependencies and persist one receipt before queueing."""
     root = (
@@ -179,6 +199,9 @@ def _prepare_workflow_unlocked(
 
     model_root = root / "ComfyUI" / "models" if runtime_root is not None else fetch_assets.models_root()
     plan = build_plan(workflow, reference=reference, ensure_models=ensure_models, ensure_packs=ensure_packs)
+    from vibecomfy.runtime.dependencies import compare_runtime, runtime_requirements_from_workflow
+    runtime_requirements = runtime_requirements_from_workflow(workflow)
+    runtime_report = compare_runtime(runtime_requirements, runtime_root=runtime_root)
     _validate_model_destinations(plan.models, model_root)
     _validate_model_entries(plan.models)
 
@@ -307,17 +330,20 @@ def _prepare_workflow_unlocked(
     receipt_dir.mkdir(parents=True, exist_ok=True)
     suffix = session_id or "one-shot"
     receipt_path = receipt_dir / f"{Path(str(reference)).stem}-{suffix}.json"
+    diagnostics = {
+        "runtime_root": str(root),
+        "session_id": session_id,
+        "python_executable": sys.executable,
+    }
+    if runtime_requirements is not None:
+        diagnostics["runtime_dependency"] = dict(runtime_dependency_report or runtime_report)
     result = PreparationResult(
         plan=plan,
         model_paths=tuple(model_paths),
         model_evidence=tuple(model_evidence),
         node_results=tuple(node_results),
         receipt_path=str(receipt_path),
-        diagnostics={
-            "runtime_root": str(root),
-            "session_id": session_id,
-            "python_executable": sys.executable,
-        },
+        diagnostics=diagnostics,
     )
     receipt_path.write_text(json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result

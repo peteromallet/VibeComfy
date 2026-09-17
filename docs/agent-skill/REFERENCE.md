@@ -155,10 +155,31 @@ Local canonical Python workflows are reconciled automatically after load and
 before compilation. The run reports all statically visible model, node-pack,
 destination, and class-accounting blockers before any local transfer, install,
 session restart, compile, or queue. Resolved workflows reuse the existing
-fetch, lockfile, session, and bounded download plumbing. `--runtime-root`,
-`--session`, `--keep-warm`, `--restart-session`, `--download-workers`, and
-`--json` apply to the normal run command; explicit `--server-url` execution is
-remote and non-mutating.
+fetch, lockfile, session, and bounded download plumbing. `--deps reuse` is the
+safe default; it compares `requirements.runtime` with the actual target and
+emits one actionable warning for drift. `--deps sync` explicitly prepares a
+managed target and honors `VIBECOMFY_OFFLINE=1`; it is rejected for an
+explicit external server. `--runtime-root`, `--session`, `--keep-warm`,
+`--restart-session`, `--download-workers`, and `--json` apply to the normal
+run command; explicit `--server-url` execution is remote and non-mutating.
+Managed sync uses an existing `runtime_root/.venv` or `runtime_root/venv` and
+the `.vibecomfy-managed` marker written by managed setup; it fails closed when
+that owned interpreter or marker is unavailable.
+
+`requirements.runtime` is a typed declaration for the tested ComfyUI
+commit/version, Python version, package constraints, launch flags, model
+identities, and custom-node commits/versions. Legacy `metadata.python_env` and
+`metadata.comfy_commit` normalize into it, with contradictions rejected.
+For fresh managed RunPod setup, pass the workflow declaration to bootstrap so
+its launch flags replace the generic low-VRAM defaults:
+
+```bash
+vibecomfy runpod bootstrap-comfy --workflow workflows/example/workflow.vibe.json
+```
+
+The declared bootstrap path requires an already provisioned managed Python and
+ComfyUI checkout under the runtime root; otherwise it fails clearly before
+claiming that the workflow runtime was synchronized.
 
 Python-format workflows can run against an existing server. VibeComfy imports `build()`, compiles the returned `VibeWorkflow` to API JSON, and queues that JSON to the server.
 
@@ -183,6 +204,7 @@ an alternate semantic source.
 For the browser transaction, `/vibecomfy/agent-edit` captures a candidate, then canonical V2 Apply uses `/vibecomfy/agent-edit/prepare` followed by `/vibecomfy/agent-edit/finalize`. `/vibecomfy/agent-edit/accept` is a temporary compatibility bridge to finalize with the same revision/API digest and transaction guards; it has no independent authority-bypass path. `/vibecomfy/agent-edit/rollback` or `/vibecomfy/agent-edit/reconcile` handles recovery and resynchronization. `/agent/edit` is a deprecated compatibility alias through the same adapter and must not bypass the gates. Queue only a finalized approved revision: the queue gate checks revision identity plus the fresh API digest and blocks stale, unapproved, or mismatched candidates. An optional `.vibe.json` sidecar binds presentation metadata to the Python workflow identity and semantic digest; it cannot alter graph semantics.
 
 H3's current proof is structural and no-GPU: it proves full source IR custody, active compiled role wiring, public `load_bundle` parity, and negative mutations. It does not prove edits, sidecar handling, transaction handling, models, CUDA, media quality, or RunPod execution.
+The authoritative H3 workflow is maintained in Astrid rather than this checkout; apply the `requirements.runtime` declaration there, not to a guessed local copy.
 
 ## Edit Candidate Vs Run Result
 

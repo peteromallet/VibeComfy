@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import subprocess
@@ -158,24 +159,108 @@ def _cmd_runpod_install_torch(args: argparse.Namespace) -> int:
 
 
 def _cmd_runpod_bootstrap_comfy(args: argparse.Namespace) -> int:
+    launch_flags = None
+    runtime_decl = None
+    workflow_arg = getattr(args, "workflow", None)
+    if workflow_arg is not None:
+        workflow_path = Path(workflow_arg)
+        try:
+            if workflow_path.suffix == ".json":
+                raw = json.loads(workflow_path.read_text(encoding="utf-8"))
+                reqs = raw.get("requirements", {}) if isinstance(raw, dict) else {}
+                runtime_raw = reqs.get("runtime") if isinstance(reqs, dict) else None
+                from vibecomfy.contracts.runtime import RuntimeRequirements
+                runtime_decl = RuntimeRequirements.from_dict(
+                    runtime_raw,
+                    legacy_python_env=(raw.get("metadata", {}) or {}).get("python_env") if isinstance(raw, dict) and isinstance(raw.get("metadata"), dict) else None,
+                    legacy_comfy_commit=(raw.get("metadata", {}) or {}).get("comfy_commit") if isinstance(raw, dict) and isinstance(raw.get("metadata"), dict) else None,
+                )
+                launch_flags = list(runtime_decl.launch_flags) if runtime_decl is not None else None
+            else:
+                from vibecomfy.registry.static_contract import extract_ready_template_contract
+                static = extract_ready_template_contract(workflow_path)
+                static_errors = [
+                    item for item in static.get("diagnostics", [])
+                    if isinstance(item, dict) and item.get("severity") == "error"
+                ]
+                if static_errors:
+                    detail = "; ".join(str(item.get("message", item)) for item in static_errors)
+                    raise ValueError(f"workflow runtime declaration is invalid: {detail}")
+                runtime_raw = static.get("runtime")
+                from vibecomfy.contracts.runtime import RuntimeRequirements
+                runtime_decl = RuntimeRequirements.from_dict(runtime_raw)
+                launch_flags = list(runtime_raw.get("launch_flags", [])) if isinstance(runtime_raw, dict) else None
+        except (OSError, ValueError, TypeError) as exc:
+            raise ValueError(f"workflow runtime declaration could not be read: {exc}") from exc
     runtime_root = args.runtime_root
+    managed_python = None
+    if runtime_decl is not None and not args.dry_run:
+        from vibecomfy.runtime.dependencies import _managed_python
+
+        managed_python = _managed_python(runtime_root)
+        comfy_root = runtime_root / "ComfyUI"
+        managed_cli = managed_python.with_name("comfyui") if managed_python is not None else None
+        marker = runtime_root / runpod_setup.MANAGED_RUNTIME_MARKER
+        if (
+            not marker.is_file()
+            or managed_python is None
+            or not comfy_root.is_dir()
+            or not (comfy_root / ".git").is_dir()
+            or managed_cli is None
+            or not managed_cli.is_file()
+        ):
+            print(
+                "RunPod runtime bootstrap refused: a declared workflow runtime requires "
+                f"an existing managed interpreter and ComfyUI checkout under {runtime_root} "
+                "(including the .vibecomfy-managed marker, runtime_root/.venv or venv, "
+                "and its comfyui executable); "
+                "provision/bind those first",
+                file=sys.stderr,
+            )
+            return 1
+        args.comfyui_executable = str(managed_cli)
     runpod_setup.ensure_runtime_layout(runtime_root=runtime_root, dry_run=args.dry_run)
     env = runpod_setup.runtime_environment(runtime_root=runtime_root)
     os.environ.update({key: os.environ.get(key, value) for key, value in env.items()})
     runpod_setup.write_extra_model_paths(runtime_root=runtime_root, dry_run=args.dry_run)
     runpod_setup.ensure_smoke_inputs(runtime_root=runtime_root, dry_run=args.dry_run)
-    if not args.skip_torch_fix:
+    if runtime_decl is not None:
+        from vibecomfy.runtime.dependencies import RuntimeDependencyError, sync_runtime
+
+        if args.dry_run:
+            print(f"would sync workflow runtime: {runtime_decl.to_dict()}")
+        else:
+            try:
+                sync_runtime(
+                    runtime_decl,
+                    runtime_root=runtime_root,
+                    offline=os.environ.get("VIBECOMFY_OFFLINE") == "1",
+                    launch_flags=launch_flags,
+                )
+            except (RuntimeDependencyError, OSError, subprocess.SubprocessError) as exc:
+                print(f"RunPod runtime sync failed: {exc}", file=sys.stderr)
+                return 1
+    declared_torch = runtime_decl.python_packages.get("torch") if runtime_decl is not None else None
+    if not args.skip_torch_fix and declared_torch is None:
         runpod_setup.install_runpod_torch(
             python=str(Path(args.comfyui_executable).with_name("python")) if "/" in args.comfyui_executable else sys.executable,
             dry_run=args.dry_run,
         )
-    installed = runpod_setup.install_node_packs(
-        custom_nodes=runtime_root / "custom_nodes",
-        lockfile=args.lockfile,
-        node_packs=args.node_pack or runpod_setup.LTX_NODE_PACKS,
-        install_requirements=not args.no_requirements,
-        dry_run=args.dry_run,
-    )
+    elif declared_torch is not None:
+        print(f"workflow runtime declares torch {declared_torch}; skipping legacy RunPod Torch override")
+    try:
+        installed = runpod_setup.install_node_packs(
+            custom_nodes=runtime_root / "custom_nodes",
+            lockfile=args.lockfile,
+            node_packs=args.node_pack or runpod_setup.LTX_NODE_PACKS,
+            python=str(managed_python) if managed_python is not None else sys.executable,
+            install_requirements=not args.no_requirements,
+            offline=os.environ.get("VIBECOMFY_OFFLINE") == "1",
+            dry_run=args.dry_run,
+        )
+    except (RuntimeError, OSError, subprocess.SubprocessError, ValueError) as exc:
+        print(f"RunPod node-pack installation failed: {exc}", file=sys.stderr)
+        return 1
     for item in installed:
         action = "would install" if args.dry_run else ("installed" if item.changed else "verified")
         print(f"{action} {item.name} @ {item.commit}: {item.path}")
@@ -189,6 +274,20 @@ def _cmd_runpod_bootstrap_comfy(args: argparse.Namespace) -> int:
             print(f"{action} VibeComfy custom node: {linked.target} -> {linked.source}")
     except FileExistsError as exc:
         print(f"VibeComfy custom node link skipped: {exc}")
+    if runtime_decl is not None and not args.dry_run:
+        from vibecomfy.runtime.dependencies import RuntimeDependencyError, sync_runtime
+
+        try:
+            final_runtime_report = sync_runtime(
+                runtime_decl,
+                runtime_root=runtime_root,
+                offline=os.environ.get("VIBECOMFY_OFFLINE") == "1",
+                launch_flags=launch_flags,
+            )
+        except (RuntimeDependencyError, OSError, subprocess.SubprocessError) as exc:
+            print(f"RunPod runtime verification failed after node installation: {exc}", file=sys.stderr)
+            return 1
+        print(f"workflow runtime verified: {final_runtime_report.get('status', 'unknown')}")
     if not args.skip_models:
         runpod_setup.stage_baseline_models(
             models_root=runtime_root / "models",
@@ -211,6 +310,7 @@ def _cmd_runpod_bootstrap_comfy(args: argparse.Namespace) -> int:
         external_address=args.external_address,
         port=args.port,
         comfyui_executable=args.comfyui_executable,
+        launch_flags=launch_flags,
     )
     print("\n# Runtime environment")
     for key, value in env.items():
@@ -281,6 +381,7 @@ def register(subparsers) -> None:
     bootstrap.add_argument("--port", type=int, default=19123)
     bootstrap.add_argument("--external-address")
     bootstrap.add_argument("--comfyui-executable", default="comfyui")
+    bootstrap.add_argument("--workflow", type=Path, help="Workflow envelope or ready-template source whose runtime declaration should be used.")
     bootstrap.add_argument(
         "--node-pack",
         action="append",

@@ -2174,30 +2174,35 @@ def _decode_serialized_vibe(
     if not isinstance(workflow_id, str) or not workflow_id.strip():
         workflow_id = source_id
 
-    requirements_raw = raw.get("requirements")
-    if not isinstance(requirements_raw, dict):
-        raise ValueError("serialized vibe envelope 'requirements' must be a mapping")
-    requirements = WorkflowRequirements(
-        models=_vibe_string_list(
-            requirements_raw.get("models"), "requirements.models"
-        ),
-        custom_nodes=_vibe_string_list(
-            requirements_raw.get("custom_nodes"), "requirements.custom_nodes"
-        ),
-        missing_models=_vibe_string_list(
-            requirements_raw.get("missing_models"), "requirements.missing_models"
-        ),
-        missing_nodes=_vibe_string_list(
-            requirements_raw.get("missing_nodes"), "requirements.missing_nodes"
-        ),
-        unsupported=_vibe_string_list(
-            requirements_raw.get("unsupported"), "requirements.unsupported"
-        ),
-    )
-
     metadata_raw = raw.get("metadata")
     if metadata_raw is not None and not isinstance(metadata_raw, dict):
         raise ValueError("serialized vibe envelope 'metadata' must be a mapping or null")
+    requirements_raw = raw.get("requirements")
+    if not isinstance(requirements_raw, dict):
+        raise ValueError("serialized vibe envelope 'requirements' must be a mapping")
+    from vibecomfy.contracts.runtime import RuntimeDependencyError, RuntimeRequirements
+    legacy_env = metadata_raw.get("python_env") if isinstance(metadata_raw, dict) else None
+    legacy_commit = metadata_raw.get("comfy_commit") if isinstance(metadata_raw, dict) else None
+    if legacy_env is not None and not isinstance(legacy_env, dict):
+        raise ValueError("metadata.python_env must be a mapping")
+    if legacy_commit is not None and not isinstance(legacy_commit, str):
+        raise ValueError("metadata.comfy_commit must be a string")
+    try:
+        runtime_requirements = RuntimeRequirements.from_dict(
+            requirements_raw.get("runtime"),
+            legacy_python_env=legacy_env,
+            legacy_comfy_commit=legacy_commit,
+        )
+    except RuntimeDependencyError as exc:
+        raise ValueError(str(exc)) from exc
+    requirements = WorkflowRequirements(
+        models=_vibe_string_list(requirements_raw.get("models"), "requirements.models"),
+        custom_nodes=_vibe_string_list(requirements_raw.get("custom_nodes"), "requirements.custom_nodes"),
+        missing_models=_vibe_string_list(requirements_raw.get("missing_models"), "requirements.missing_models"),
+        missing_nodes=_vibe_string_list(requirements_raw.get("missing_nodes"), "requirements.missing_nodes"),
+        unsupported=_vibe_string_list(requirements_raw.get("unsupported"), "requirements.unsupported"),
+        runtime=runtime_requirements,
+    )
 
     strict_types = raw.get("strict_types", False)
     if not isinstance(strict_types, bool):

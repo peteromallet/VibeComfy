@@ -62,6 +62,13 @@ validated Python bundle and writes the curated Python/companion pair; it does
 not regenerate or copy `source.json`. `port inventory` reports readability
 issues and source provenance across checked-in templates.
 
+For reproducible execution, put the tested base-runtime target in
+`requirements.runtime`. Normal runs reuse and compare it without installing;
+use `--deps sync` only with an existing managed runtime initialized by the
+VibeComfy setup path (its `.vibecomfy-managed` marker and isolated Python are
+required). Offline sync fails closed on drift, and explicit external servers
+are never modified.
+
 See [templates/porting_workbench.md](templates/porting_workbench.md) for the full workflow and when to use `doctor`, `validate`, `nodes install-plan`, `fetch`, and `--head-check-models`.
 
 The canonical promotion path is Hivemind or local source -> `vibecomfy import`
@@ -114,10 +121,20 @@ python -m vibecomfy.cli port export my_workflow.json --to ui --dry-run
 New ready templates declare data first and build the graph second:
 
 - `MODELS: dict[str, ModelAsset]` lists every authored model file, including URL, Comfy subdir, and when available `sha256`, `hf_revision`, and `size_bytes`.
-- `PUBLIC_INPUTS: dict[str, InputSpec]` is the public contract. Each input points at a node id and field and can carry aliases, type, required state, default, and media semantics.
-- `READY_METADATA = ReadyMetadata.build(...)` is the reproducibility identity: capability, public contract, requirements, model assets, custom-node pack provenance, `vibecomfy_version`, `comfy_core`, optional hardware, and optional `python_env`. Template id, source workflow, output prefix, and other static fields are derived when they match repository conventions.
-- `with new_workflow(READY_METADATA, source_path=__file__) as wf:` binds the active workflow through a `ContextVar`, allowing generated wrappers to omit the first `wf` argument.
-- `return wf.finalize(PUBLIC_INPUTS, output_node="...")` applies metadata, registers inputs, binds the output, and checks that the graph still matches the public contract.
+- `READY_METADATA = ReadyMetadata.build(...)` is the reproducibility identity:
+  capability, public contract, requirements, model assets, custom-node pack
+  provenance, `vibecomfy_version`, `comfy_core`, optional hardware, and
+  optional legacy `python_env`. New reusable workflows should put their tested
+  runtime target in `requirements.runtime` (ComfyUI/Python versions, package
+  constraints, launch flags, model identities, and custom-node commits).
+  Legacy `python_env`/`comfy_commit` values are normalized and contradictions
+  are rejected.
+- `with new_workflow(READY_METADATA, source_path=__file__) as wf:` binds the
+  active workflow through a `ContextVar`, allowing generated wrappers to omit
+  the first `wf` argument.
+- `return wf.finalize(PUBLIC_INPUTS, output_node="...")` applies metadata,
+  registers inputs, binds the output, and checks that the graph still matches
+  the public contract.
 
 ```python
 from vibecomfy.nodes.core import CLIPTextEncode, SaveImage

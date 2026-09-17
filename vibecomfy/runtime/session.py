@@ -20,7 +20,7 @@ import urllib.request
 import uuid
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 
 from vibecomfy.comfy_command import comfyui_command
 from vibecomfy.errors import (
@@ -44,6 +44,7 @@ from vibecomfy.workflow_bundle import (
     WorkflowBundleError,
     canonical_digest,
 )
+from .dependencies import RuntimeDependencyError
 
 from .attempt import build_attempt_bundle, build_shared_fields, write_attempt_json
 from .client import ComfyClient
@@ -137,6 +138,7 @@ def _runtime_evidence(
     schema_provenance: Mapping[str, Any] | None = None,
     queue_acceptance: Mapping[str, Any] | None = None,
     terminal: Mapping[str, Any] | None = None,
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     approved = record.to_dict()
     acceptance = {
@@ -154,7 +156,7 @@ def _runtime_evidence(
     }
     if terminal is not None:
         terminal_default.update(dict(terminal))
-    return {
+    evidence = {
         "approved_projection": approved,
         "api_digest": record.api_digest,
         "ui_digest": canonical_digest(approved["ui_projection"]),
@@ -168,6 +170,46 @@ def _runtime_evidence(
         "queue_acceptance": acceptance,
         "terminal": terminal_default,
     }
+    if dependency_report and dependency_report.get("declared") is not False:
+        evidence["dependency_report"] = dict(dependency_report)
+    return evidence
+
+
+def _session_dependency_target(
+    session: Any, *, package_names: Sequence[str] | None = None
+) -> dict[str, Any]:
+    """Capture the managed session's observable runtime boundary."""
+    from .dependencies import inspect_runtime_target
+
+    config = session.config
+    target = inspect_runtime_target(
+        runtime_root=config.runtime_root, package_names=package_names
+    )
+    snapshot = getattr(session, "_process_configuration", None)
+    argv = getattr(session, "_argv", None)
+    if isinstance(argv, (list, tuple)) and argv:
+        target["launch_flags"] = list(argv)
+    elif snapshot is not None and isinstance(snapshot.values.get("launch_flags"), (list, tuple)):
+        # An active embedded session must be compared with the immutable
+        # configuration captured when its Comfy context was created.
+        target["launch_flags"] = list(snapshot.values["launch_flags"])
+    elif isinstance(config.extra.get("launch_flags"), (list, tuple)):
+        target["launch_flags"] = list(config.extra["launch_flags"])
+    if config.runtime_root is not None:
+        target["runtime_root"] = str(config.runtime_root)
+    target["managed"] = True
+    return target
+
+
+def _runtime_package_names(workflow: VibeWorkflow) -> list[str]:
+    runtime = getattr(workflow.requirements, "runtime", None)
+    return [name for name, _constraint in runtime.packages] if runtime is not None else []
+
+
+def _bind_runtime_launch_flags(config: SessionConfig, workflow: VibeWorkflow) -> None:
+    runtime = getattr(workflow.requirements, "runtime", None)
+    if runtime is not None and runtime.launch_flags:
+        config.extra["launch_flags"] = list(runtime.launch_flags)
 
 
 def _initial_attempt_bundle(record: ApprovedProjectionRecord, evidence: Mapping[str, Any]) -> dict[str, Any]:
@@ -184,6 +226,8 @@ def _persist_runtime_evidence(
     attempt_bundle["terminal"] = dict(evidence["terminal"])
     attempt_bundle["adapter"] = dict(evidence["adapter"])
     attempt_bundle["schema_provenance"] = dict(evidence["schema_provenance"])
+    if evidence.get("dependency_report"):
+        attempt_bundle["dependency_report"] = dict(evidence["dependency_report"])
     write_attempt_json(run_dir, attempt_bundle)
 
 
@@ -290,6 +334,7 @@ def _runtime_failure_evidence(
     exc: BaseException,
     queue_started: bool,
     interrupted: bool = False,
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     status = str(queue_acceptance.get("status", "not_attempted"))
     prompt_id = queue_acceptance.get("prompt_id")
@@ -321,6 +366,7 @@ def _runtime_failure_evidence(
         queue_acceptance={"status": status, "prompt_id": prompt_id},
         terminal={"phase": terminal_phase, "reason_type": reason_type,
                   "reason": reason, "acceptance_known": status in {"accepted", "rejected"}},
+        dependency_report=dependency_report,
     )
 
 
@@ -369,6 +415,7 @@ def _persist_runtime_failure(
             phase=phase, exc=exc_for_class,
             queue_started=phase in queue_started_phases,
             interrupted=interrupted,
+            dependency_report=attempt_bundle.get("dependency_report"),
         )
     attempt_error: Exception | None = None
     try:
@@ -391,6 +438,46 @@ def _persist_runtime_failure(
     if journal_error is not None:
         raise QueueError("runtime lifecycle evidence could not be persisted",
                          next_action="vibecomfy runtime doctor") from (original_error or journal_error)
+
+
+def _persist_dependency_failure(
+    *,
+    run_dir: Path,
+    run_id: str,
+    record: ApprovedProjectionRecord,
+    bundle: WorkflowBundle,
+    adapter_kind: str,
+    backend: str,
+    endpoint: str | None,
+    dependency_report: Mapping[str, Any] | None,
+    exc: BaseException,
+) -> None:
+    """Create the same durable pre-queue receipt for a dependency refusal."""
+    report = dict(dependency_report or {})
+    report.setdefault("mode", "reuse")
+    report.setdefault("changes", [])
+    attempt_bundle, state, generation, _initial = _begin_runtime_lifecycle(
+        run_dir=run_dir,
+        run_id=run_id,
+        record=record,
+        bundle=bundle,
+        adapter_kind=adapter_kind,
+        backend=backend,
+        endpoint=endpoint,
+        dependency_report=report,
+    )
+    _persist_runtime_failure(
+        run_dir=run_dir,
+        attempt_bundle=attempt_bundle,
+        state=state,
+        run_id=run_id,
+        record=record,
+        generation=generation,
+        original_error=exc,
+        queue_acceptance={"status": "not_attempted", "prompt_id": None},
+        phase="dependencies",
+        exc=exc,
+    )
 
 
 def _commit_queue_witness(
@@ -459,12 +546,14 @@ def _complete_runtime_run(
     schema_provenance: Mapping[str, Any],
     queue_acceptance: Mapping[str, Any],
     metadata: dict[str, Any],
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> Path:
     evidence = _runtime_evidence(
         record, adapter_kind=adapter_kind, backend=backend, endpoint=endpoint,
         schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
         terminal={"phase": "completed", "reason_type": "none", "reason": None,
                   "acceptance_known": True},
+        dependency_report=dependency_report,
     )
     try:
         _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
@@ -540,6 +629,8 @@ def _completion_record(run_dir: Path, metadata: Mapping[str, Any]) -> dict[str, 
         "artifact_locations": locations,
         "log_path": metadata.get("log_path"),
         "log_provenance": dict(log_provenance),
+        **({"runtime_dependency": dict(metadata["runtime_dependency"])}
+           if isinstance(metadata.get("runtime_dependency"), Mapping) else {}),
     }
 
 
@@ -552,6 +643,7 @@ def _begin_runtime_lifecycle(
     adapter_kind: str,
     backend: str,
     endpoint: str | None,
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], int, dict[str, Any]]:
     evidence = _runtime_evidence(
         record,
@@ -559,6 +651,7 @@ def _begin_runtime_lifecycle(
         backend=backend,
         endpoint=endpoint,
         schema_provenance=_schema_provider_provenance(None),
+        dependency_report=dependency_report,
     )
     attempt_bundle = _initial_attempt_bundle(record, evidence)
     try:
@@ -965,6 +1058,8 @@ class VibeSession(Protocol):
         strict_drift: bool | None = None,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
+        dependency_mode: str = "reuse",
+        dependency_report: Mapping[str, Any] | None = None,
     ) -> RunResult:
         ...
 
@@ -1075,6 +1170,7 @@ class EmbeddedSession:
     async def start(self) -> None:
         if self._comfy is not None:
             return
+        _assert_embedded_managed_interpreter(self.config)
         process_configuration = _snapshot_runtime_configuration(self.config)
         from comfy.client.embedded_comfy_client import Comfy
 
@@ -1097,6 +1193,8 @@ class EmbeddedSession:
         strict_drift: bool | None = None,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
+        dependency_mode: str = "reuse",
+        dependency_report: Mapping[str, Any] | None = None,
     ) -> RunResult:
         workflow = _require_runtime_boundary(record, bundle)
         if self._inflight_run is not None and not self._inflight_run.done():
@@ -1110,6 +1208,10 @@ class EmbeddedSession:
                 kwargs["ensure_packs"] = True
             if ensure_models:
                 kwargs["ensure_models"] = True
+            if dependency_mode != "reuse":
+                kwargs["dependency_mode"] = dependency_mode
+            if dependency_report is not None:
+                kwargs["dependency_report"] = dependency_report
             return await self._run_untracked(
                 record,
                 bundle,
@@ -1134,15 +1236,71 @@ class EmbeddedSession:
         parent_run_id: str | None = None,
         ensure_packs: bool = False,
         ensure_models: bool = False,
+        dependency_mode: str = "reuse",
+        dependency_report: Mapping[str, Any] | None = None,
     ) -> RunResult:
         workflow = _require_runtime_boundary(record, bundle)
+        run_id, run_dir = _allocate_request_root("run", config=self.config)
+        _assert_embedded_managed_interpreter(self.config)
+        if dependency_mode == "sync" and self._comfy is not None:
+            exc = RuntimeDependencyError(
+                "--deps sync refused while the embedded session is active; "
+                "stop/restart the embedded session before synchronization"
+            )
+            _persist_dependency_failure(
+                run_dir=run_dir, run_id=run_id, record=record, bundle=bundle,
+                adapter_kind="embedded", backend=backend, endpoint=None,
+                dependency_report={
+                    "declared": True, "mode": "sync", "status": "refused",
+                    "checks": [], "mismatches": [], "warnings": [], "changes": [],
+                    "error": str(exc),
+                }, exc=exc,
+            )
+            raise exc
+        _bind_runtime_launch_flags(self.config, workflow)
         total_start = time.monotonic()
         timings: dict[str, float] = {}
+        from .run import _dependency_check
+        try:
+            dependency_report = _dependency_check(
+                workflow,
+                config=self.config,
+                dependency_mode=dependency_mode,
+                server_url=None,
+                target=_session_dependency_target(
+                    self, package_names=_runtime_package_names(workflow)
+                ),
+                dependency_report=dependency_report,
+            )
+        except RuntimeDependencyError as exc:
+            _persist_dependency_failure(
+                run_dir=run_dir, run_id=run_id, record=record, bundle=bundle,
+                adapter_kind="embedded", backend=backend, endpoint=None,
+                dependency_report=getattr(exc, "dependency_report", None), exc=exc,
+            )
+            raise
         phase_start = time.monotonic()
         await self.start()
         timings["session_start_sec"] = round(time.monotonic() - phase_start, 3)
         assert self._comfy is not None
-        run_id, run_dir = _allocate_request_root("run", config=self.config)
+        try:
+            dependency_report = _dependency_check(
+                workflow,
+                config=self.config,
+                dependency_mode="reuse",
+                server_url=None,
+                target=_session_dependency_target(
+                    self, package_names=_runtime_package_names(workflow)
+                ),
+                dependency_report=dependency_report,
+            )
+        except RuntimeDependencyError as exc:
+            _persist_dependency_failure(
+                run_dir=run_dir, run_id=run_id, record=record, bundle=bundle,
+                adapter_kind="embedded", backend=backend, endpoint=None,
+                dependency_report=getattr(exc, "dependency_report", None), exc=exc,
+            )
+            raise
         log_path = run_dir / "embedded.log"
         ws_url = _embedded_observation_url(self.config)
         attempt_bundle, journal_state, journal_generation, _initial = _begin_runtime_lifecycle(
@@ -1153,6 +1311,7 @@ class EmbeddedSession:
             adapter_kind="embedded",
             backend=backend,
             endpoint=ws_url,
+            dependency_report=dependency_report,
         )
         schema_provenance = _schema_provider_provenance(None)
         queue_acceptance = {"status": "not_attempted", "prompt_id": None}
@@ -1189,6 +1348,7 @@ class EmbeddedSession:
                 schema_provenance=schema_provenance,
                 queue_acceptance=queue_acceptance,
                 terminal={"phase": "prepared", "reason_type": "none", "reason": None, "acceptance_known": False},
+                dependency_report=dependency_report,
             )
             attempt_bundle = build_attempt_bundle(
                 bundle,
@@ -1199,6 +1359,7 @@ class EmbeddedSession:
                 adapter_endpoint=ws_url,
                 schema_provenance=schema_provenance,
                 runtime_evidence=evidence,
+                runtime_compatibility=dependency_report,
             )
             _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
             fp = model_fingerprint(api_dict)
@@ -1272,6 +1433,7 @@ class EmbeddedSession:
                 artifacts=artifacts,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
+                dependency_report=dependency_report,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -1279,6 +1441,7 @@ class EmbeddedSession:
                 adapter_kind="embedded", backend=backend, endpoint=ws_url,
                 schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
                 metadata=metadata,
+                dependency_report=dependency_report,
             )
             return RunResult(
                 run_id=run_id,
@@ -1434,6 +1597,8 @@ class ServerSession:
         strict_drift: bool | None = None,
         chain_id: str | None = None,
         parent_run_id: str | None = None,
+        dependency_mode: str = "reuse",
+        dependency_report: Mapping[str, Any] | None = None,
     ) -> RunResult:
         workflow = _require_runtime_boundary(record, bundle)
         if self._inflight_run is not None and not self._inflight_run.done():
@@ -1445,9 +1610,14 @@ class ServerSession:
             kwargs: dict[str, Any] = {}
             if ensure_models:
                 kwargs.update(ensure_models=True, shared_models_root=shared_models_root)
+            if dependency_mode != "reuse":
+                kwargs["dependency_mode"] = dependency_mode
+            if dependency_report is not None:
+                kwargs["dependency_report"] = dependency_report
             return await self._run_untracked(
                 record, bundle, backend=backend, strict_drift=resolved_strict,
-                chain_id=chain_id, parent_run_id=parent_run_id, **kwargs,
+                chain_id=chain_id, parent_run_id=parent_run_id,
+                **kwargs,
             )
         finally:
             if self._inflight_run is task:
@@ -1464,15 +1634,69 @@ class ServerSession:
         parent_run_id: str | None = None,
         ensure_models: bool = False,
         shared_models_root: str | Path | None = None,
+        dependency_mode: str = "reuse",
+        dependency_report: Mapping[str, Any] | None = None,
     ) -> RunResult:
         workflow = _require_runtime_boundary(record, bundle)
+        run_id, run_dir = _allocate_request_root("run", config=self.config)
+        if dependency_mode == "sync" and self.process is not None and self.process.returncode is None:
+            exc = RuntimeDependencyError(
+                "--deps sync refused while the managed server is active; stop/restart the managed session first"
+            )
+            _persist_dependency_failure(
+                run_dir=run_dir, run_id=run_id, record=record, bundle=bundle,
+                adapter_kind="managed", backend=backend, endpoint=self.url,
+                dependency_report={
+                    "declared": True, "mode": "sync", "status": "refused",
+                    "checks": [], "mismatches": [], "warnings": [], "changes": [],
+                    "error": str(exc),
+                }, exc=exc,
+            )
+            raise exc
+        _bind_runtime_launch_flags(self.config, workflow)
         total_start = time.monotonic()
         timings: dict[str, float] = {}
+        from .run import _dependency_check
+        try:
+            dependency_report = _dependency_check(
+                workflow,
+                config=self.config,
+                dependency_mode=dependency_mode,
+                server_url=None,
+                target=_session_dependency_target(
+                    self, package_names=_runtime_package_names(workflow)
+                ),
+                dependency_report=dependency_report,
+            )
+        except RuntimeDependencyError as exc:
+            _persist_dependency_failure(
+                run_dir=run_dir, run_id=run_id, record=record, bundle=bundle,
+                adapter_kind="managed", backend=backend, endpoint=self.url,
+                dependency_report=getattr(exc, "dependency_report", None), exc=exc,
+            )
+            raise
         phase_start = time.monotonic()
         await self.start()
         timings["session_start_sec"] = round(time.monotonic() - phase_start, 3)
         assert self.url is not None
-        run_id, run_dir = _allocate_request_root("run", config=self.config)
+        try:
+            dependency_report = _dependency_check(
+                workflow,
+                config=self.config,
+                dependency_mode="reuse",
+                server_url=None,
+                target=_session_dependency_target(
+                    self, package_names=_runtime_package_names(workflow)
+                ),
+                dependency_report=dependency_report,
+            )
+        except RuntimeDependencyError as exc:
+            _persist_dependency_failure(
+                run_dir=run_dir, run_id=run_id, record=record, bundle=bundle,
+                adapter_kind="managed", backend=backend, endpoint=self.url,
+                dependency_report=getattr(exc, "dependency_report", None), exc=exc,
+            )
+            raise
         log_path = self._captured_process_log_path()
         attempt_bundle, journal_state, journal_generation, _initial = _begin_runtime_lifecycle(
             run_dir=run_dir,
@@ -1482,6 +1706,7 @@ class ServerSession:
             adapter_kind="managed",
             backend=backend,
             endpoint=self.url,
+            dependency_report=dependency_report,
         )
         schema_provenance = _schema_provider_provenance(None)
         queue_acceptance = {"status": "not_attempted", "prompt_id": None}
@@ -1519,6 +1744,7 @@ class ServerSession:
                 schema_provenance=schema_provenance,
                 queue_acceptance=queue_acceptance,
                 terminal={"phase": "prepared", "reason_type": "none", "reason": None, "acceptance_known": False},
+                dependency_report=dependency_report,
             )
             attempt_bundle = build_attempt_bundle(
                 bundle,
@@ -1529,6 +1755,7 @@ class ServerSession:
                 adapter_endpoint=self.url,
                 schema_provenance=schema_provenance,
                 runtime_evidence=evidence,
+                runtime_compatibility=dependency_report,
             )
             _persist_runtime_evidence(run_dir, attempt_bundle, evidence)
             fp = model_fingerprint(api_dict)
@@ -1603,6 +1830,7 @@ class ServerSession:
                 artifacts=artifacts,
                 chain_id=chain_id,
                 parent_run_id=parent_run_id,
+                dependency_report=dependency_report,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -1610,6 +1838,7 @@ class ServerSession:
                 adapter_kind="managed", backend=backend, endpoint=self.url,
                 schema_provenance=schema_provenance, queue_acceptance=queue_acceptance,
                 metadata=metadata,
+                dependency_report=dependency_report,
             )
             return RunResult(
                 run_id=run_id,
@@ -2682,6 +2911,7 @@ def _run_metadata(
     normalization: Any | None = None,
     chain_id: str | None = None,
     parent_run_id: str | None = None,
+    dependency_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     workflow = _require_runtime_boundary(record, bundle)
     approved = record.to_dict()
@@ -2772,6 +3002,10 @@ def _run_metadata(
         "missing_nodes": reqs.missing_nodes,
         "unsupported": reqs.unsupported,
     }
+    if getattr(reqs, "runtime", None) is not None:
+        metadata["requirements"]["runtime"] = reqs.runtime.to_dict()
+    if dependency_report and dependency_report.get("declared") is not False:
+        metadata["runtime_dependency"] = dict(dependency_report)
     return metadata
 
 
@@ -3341,7 +3575,17 @@ def _comfy_server_argv(
 ) -> tuple[str, ...]:
     runtime_configuration = runtime_configuration or _snapshot_runtime_configuration(config)
     values = runtime_configuration.values
-    argv = [*_comfyui_command(), "serve"]
+    command = _comfyui_command()
+    if config.runtime_root is not None:
+        from .dependencies import _managed_python
+
+        managed_python = _managed_python(config.runtime_root)
+        if managed_python is not None:
+            managed_cli = managed_python.with_name("comfyui")
+            command = (str(managed_cli),) if managed_cli.is_file() else (
+                str(managed_python), "-m", "comfy.cmd.main"
+            )
+    argv = [*command, "serve"]
     if config.vram_policy in {"high", "low", "normal"}:
         argv.append(f"--{config.vram_policy}vram")
     if config.reserve_vram_gb is not None:
@@ -3375,6 +3619,9 @@ def _comfy_server_argv(
         if value:
             argv.extend([flag, str(value)])
     argv.extend(["--port", str(config.port or 8188)])
+    declared_flags = values.get("launch_flags")
+    if isinstance(declared_flags, (list, tuple)):
+        argv.extend(str(flag) for flag in declared_flags if str(flag).strip())
     return tuple(argv)
 
 
@@ -3480,6 +3727,22 @@ async def _spawn_comfy_server(
 
 def _comfyui_command() -> tuple[str, ...]:
     return comfyui_command()
+
+
+def _assert_embedded_managed_interpreter(config: SessionConfig) -> None:
+    """Embedded Comfy runs in this interpreter; reject a different managed env."""
+    from .dependencies import _managed_python
+
+    managed_python = _managed_python(config.runtime_root)
+    if managed_python is None:
+        return
+    managed_root = managed_python.parent.parent
+    if Path(sys.prefix).resolve(strict=False) != managed_root.resolve(strict=False):
+        raise RuntimeConfigurationError(
+            "embedded execution cannot use a different managed interpreter; "
+            f"selected {managed_python}, current environment {sys.executable}. "
+            "Use managed server execution or invoke VibeComfy from the selected environment."
+        )
 
 
 async def _maybe_flush_for_policy(session: VibeSession, fp: tuple[Any, ...]) -> None:
