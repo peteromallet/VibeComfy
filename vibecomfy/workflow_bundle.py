@@ -2125,15 +2125,30 @@ def _approval_preconditions(
             )
 
     try:
-        from vibecomfy.node_packs import CORE_COMFY_CLASSES, get_known_node_packs, read_lockfile
+        from vibecomfy.node_packs import CORE_COMFY_CLASSES, CustomNodePack, get_known_node_packs, read_lockfile
+        from vibecomfy.custom_node_refs import effective_lock_entries
 
         # Bind both local pack authorities to the repository containing this
         # implementation.  In particular, never branch on a caller's CWD or
         # invoke the legacy helper's ambient/on-demand schema path.
         repo_root = Path(__file__).resolve().parents[1]
         lock_path = repo_root / "custom_nodes.lock"
-        lock_entries = read_lockfile(lock_path)
+        lock_entries = effective_lock_entries(workflow, read_lockfile(lock_path))
         known_packs = get_known_node_packs(lock_path)
+        # A portable workflow may carry the only available class inventory.
+        # Add synthetic pack records for those scoped records without changing
+        # the installed-pack catalog used for runtime verification.
+        known_packs = tuple(known_packs) + tuple(
+            CustomNodePack(
+                name=str(entry.name),
+                repo=str(entry.url or entry.path or entry.name),
+                classes=frozenset(entry.class_set),
+                pip_packages=tuple(entry.pip_packages),
+                class_schema_sha256=entry.class_schema_sha256,
+            )
+            for entry in lock_entries
+            if entry.class_set and str(entry.name) not in {str(pack.name) for pack in known_packs}
+        )
         known_pack_classes = {
             str(class_type)
             for pack in known_packs
@@ -2304,7 +2319,10 @@ def _approval_preconditions(
             if identity is None:
                 if pack is not None:
                     raise WorkflowBundleError(
-                        f"object-info identity is unavailable for {node.class_type} ({node_id})"
+                        f"object-info identity is unavailable for {node.class_type} ({node_id}); "
+                        f"authoritative lockfile {lock_path} has no commit identity for "
+                        f"pack {pack.name}. Stage the matching custom_nodes.lock beside "
+                        "the loaded VibeComfy package; an installed checkout alone is not a pin."
                     )
                 continue
             result = resolve_class_entry(
@@ -2315,6 +2333,16 @@ def _approval_preconditions(
                     target_schema = get_schema(str(node.class_type))
                     if target_schema is not None:
                         verified_installed_commit: str | None = None
+                        target_url = getattr(schema_provider, "_active_server_url", None) or getattr(
+                            schema_provider, "server_url", None
+                        )
+                        # An explicit remote target owns its checkout.  The
+                        # local lock/cache remains declaration evidence but
+                        # cannot prove the selected server's installed HEAD;
+                        # leave that predicate unverified for the runtime
+                        # dependency report instead of treating local absence
+                        # as a remote installation failure.
+                        remote_target_evidence = bool(target_url)
                         if lock_entry is not None:
                             expected_commit = lock_entry.commit or lock_entry.git_commit_sha
                             if not expected_commit:
@@ -2331,7 +2359,10 @@ def _approval_preconditions(
                                 )
                             except (OSError, RuntimeError, ValueError):
                                 verified_installed_commit = None
-                            if verified_installed_commit != str(expected_commit):
+                            if (
+                                verified_installed_commit != str(expected_commit)
+                                and not remote_target_evidence
+                            ):
                                 raise WorkflowBundleError(
                                     f"live target schema cannot supersede explicit lock pin for "
                                     f"{node.class_type} ({node_id}); installed checkout does not "
@@ -2349,9 +2380,6 @@ def _approval_preconditions(
                                 if value is not None and str(value):
                                     historical_identity[key] = str(value)
                         target_digest = getattr(schema_provider, "_object_info_digest", None)
-                        target_url = getattr(schema_provider, "_active_server_url", None) or getattr(
-                            schema_provider, "server_url", None
-                        )
                         approval_diagnostics.append(
                             {
                                 "code": "live_target_schema_override",
@@ -2367,6 +2395,10 @@ def _approval_preconditions(
                                 "target_server_url": str(target_url) if target_url else None,
                                 "target_schema_digest": str(target_digest) if target_digest else None,
                                 "verified_installed_commit": verified_installed_commit,
+                                "installed_commit_status": (
+                                    "unverified_remote_target"
+                                    if remote_target_evidence else "verified"
+                                ),
                             }
                         )
                         _logger.warning(

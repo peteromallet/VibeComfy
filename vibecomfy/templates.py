@@ -1698,7 +1698,7 @@ def _finalize_impl(
         # non-runtime requirement fields after ``finalize_metadata`` infers
         # its local view.  Reapply only fields explicitly present in the
         # compact READY_METADATA witness; absent fields remain inferred.
-        for key in ("models", "custom_nodes", "missing_models", "missing_nodes", "unsupported"):
+        for key in ("models", "custom_nodes", "custom_node_refs", "missing_models", "missing_nodes", "unsupported"):
             if key not in requirements:
                 continue
             value = requirements[key]
@@ -1785,7 +1785,7 @@ def _finalize_impl(
         if not isinstance(canonical_requirements, Mapping):
             raise TypeError("canonical requirements must be a mapping")
         allowed_requirement_keys = {
-            "models", "custom_nodes", "missing_models", "missing_nodes", "unsupported",
+            "models", "custom_nodes", "custom_node_refs", "missing_models", "missing_nodes", "unsupported",
         }
         unknown = set(canonical_requirements) - allowed_requirement_keys
         if unknown:
@@ -1804,7 +1804,7 @@ def _finalize_impl(
         # empty list, so restore all five fields exactly.  This keeps an
         # authored pair's semantic digest stable without reintroducing the
         # large custody manifest into generated Python.
-        for key in ("models", "custom_nodes", "missing_models", "missing_nodes", "unsupported"):
+        for key in ("models", "custom_nodes", "custom_node_refs", "missing_models", "missing_nodes", "unsupported"):
             value = requirements.get(key, [])
             if not isinstance(value, (list, tuple)):
                 raise TypeError(f"v2 requirements {key!r} must be a sequence")

@@ -943,6 +943,14 @@ def _is_dynamic_payload_input(
         return True
     if class_type == "SimpleCalculatorKJ":
         return input_name in _simple_calculator_variables(inputs or {})
+    # H3 Custom Keyframes exposes optional ``keyframe_image_N`` and
+    # ``keyframe_position_N`` sockets through a dynamic INPUT_TYPES mapping.
+    # Comfy's /object_info endpoint reports only the fixed controller fields,
+    # but the installed node intentionally consumes these numbered kwargs.
+    # Keep this allowance class-scoped so an ordinary unknown input still
+    # fails closed.
+    if class_type == "MiniMaxH3CustomKeyframes":
+        return bool(re.fullmatch(r"keyframe_(?:image|position)_[1-9][0-9]*", input_name))
     # Comfy's versioned auto-grow contract exposes a compact controller in
     # object_info and serializes populated child sockets as dotted payload
     # fields (for example ``ref_images.ref_image_0``).  The controller's

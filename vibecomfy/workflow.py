@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 import math
 import warnings
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, ClassVar, Mapping
 
 from vibecomfy._compile import _resolve as helper_resolve
 from vibecomfy._compile import _widgets as widget_aliases
@@ -54,7 +54,8 @@ def _to_plain(obj: Any) -> Any:
             # defaults keeps older envelopes byte-compatible while authored
             # recursive/variant data is serialized normally.
             if field_info.name in {
-                "definitions", "interfaces", "boundary_ports", "virtual_wires", "variants"
+                "definitions", "interfaces", "boundary_ports", "virtual_wires", "variants",
+                "custom_node_refs",
             } and not value:
                 continue
             if field_info.name == "default_variant" and value is None:
@@ -113,6 +114,7 @@ class WorkflowSource:
 
 @dataclass(slots=True)
 class WorkflowRequirements:
+    _UNSPECIFIED_REFS: ClassVar[object] = object()
     # Model assets may retain their source-backed mapping (name/subdir plus
     # optional provenance) while crossing the ready-template boundary.
     models: list[str | Mapping[str, Any]] = field(default_factory=list)
@@ -121,9 +123,33 @@ class WorkflowRequirements:
     missing_nodes: list[str] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
     runtime: RuntimeRequirements | None = None
+    # Canonical structured custom-node declarations.  Kept after the legacy
+    # fields so positional WorkflowRequirements(...) callers retain their
+    # historical argument order.
+    custom_node_refs: list[dict[str, Any]] | object = _UNSPECIFIED_REFS
+    _refs_were_declared: bool = field(default=False, init=False, repr=False, compare=False)
     def __post_init__(self) -> None:
+        from vibecomfy.custom_node_refs import normalize_custom_node_requirements
+
+        supplied = self.custom_node_refs is not self._UNSPECIFIED_REFS
+        self._refs_were_declared = supplied
+        normalized, _warnings = normalize_custom_node_requirements(
+            {
+                "custom_nodes": list(self.custom_nodes or ()),
+                "custom_node_refs": list(self.custom_node_refs or ()) if supplied else [],
+            }
+        )
+        self.custom_nodes = list(normalized.get("custom_nodes") or ())
+        self.custom_node_refs = list(normalized.get("custom_node_refs") or ())
         if self.runtime is not None and not isinstance(self.runtime, RuntimeRequirements):
             self.runtime = RuntimeRequirements.from_dict(self.runtime)
+
+    @property
+    def typed_custom_node_refs(self) -> tuple[Any, ...]:
+        """Return immutable typed views without changing the JSON IR shape."""
+        from vibecomfy.custom_node_refs import CustomNodeRef
+
+        return tuple(CustomNodeRef.from_mapping(ref) for ref in self.custom_node_refs)
 
 
 @dataclass(slots=True)
@@ -485,6 +511,48 @@ class VibeWorkflow:
     _uid_counter: int = field(default=0, init=False, repr=False)
     _workflow_context_token: Any = field(default=None, init=False, repr=False, compare=False)
 
+    def __post_init__(self) -> None:
+        """Admit legacy metadata declarations into the canonical IR once."""
+        from vibecomfy.custom_node_refs import normalize_custom_node_requirements
+
+        metadata_requirements = self.metadata.get("requirements") if isinstance(self.metadata, Mapping) else None
+        if not self.requirements._refs_were_declared and isinstance(metadata_requirements, Mapping) and "custom_node_refs" in metadata_requirements:
+            self._admit_legacy_custom_node_refs_once()
+        if not isinstance(metadata_requirements, Mapping):
+            return
+        # Metadata was the pre-typed compatibility surface.  Merge it at
+        # construction, then use WorkflowRequirements as the sole semantic
+        # authority.  Keep the original metadata untouched for source
+        # provenance and old callers that inspect it directly.
+        raw = {
+            "custom_nodes": [
+                *list(self.requirements.custom_nodes or ()),
+                *list(metadata_requirements.get("custom_nodes") or ()),
+            ],
+            # Metadata is a legacy construction/import source only. Once the
+            # typed IR has refs, later metadata mutation must not become a
+            # second authority during finalization.
+            "custom_node_refs": list(self.requirements.custom_node_refs or ()),
+        }
+        normalized, _warnings = normalize_custom_node_requirements(raw)
+        self.requirements.custom_nodes = list(normalized.get("custom_nodes") or ())
+        self.requirements.custom_node_refs = list(normalized.get("custom_node_refs") or ())
+
+    def _admit_legacy_custom_node_refs_once(self) -> None:
+        """Admit legacy metadata refs once; typed IR then owns the value."""
+        if self.requirements._refs_were_declared:
+            return
+        metadata_requirements = self.metadata.get("requirements") if isinstance(self.metadata, Mapping) else None
+        if not isinstance(metadata_requirements, Mapping) or "custom_node_refs" not in metadata_requirements:
+            return
+        from vibecomfy.custom_node_refs import normalize_custom_node_requirements
+
+        normalized, _warnings = normalize_custom_node_requirements(
+            {"custom_node_refs": copy.deepcopy(metadata_requirements.get("custom_node_refs"))}
+        )
+        self.requirements.custom_node_refs = list(normalized.get("custom_node_refs") or ())
+        self.requirements._refs_were_declared = True
+
     def __enter__(self) -> "VibeWorkflow":
         from vibecomfy.workflow_context import active_workflow, bind_workflow
 
@@ -769,6 +837,7 @@ class VibeWorkflow:
         return result
 
     def semantic_projection(self) -> dict[str, Any]:
+        self._admit_legacy_custom_node_refs_once()
         """Return the deterministic Python-owned semantic projection."""
         from vibecomfy.identity.uid import validate_local_uid
 
@@ -825,6 +894,14 @@ class VibeWorkflow:
             field_name: sorted(str(value) for value in getattr(self.requirements, field_name))
             for field_name in ("models", "custom_nodes", "missing_models", "missing_nodes", "unsupported")
         }
+        semantic_custom_node_refs = list(self.requirements.custom_node_refs or ())
+        if semantic_custom_node_refs:
+            requirements["custom_node_refs"] = copy.deepcopy(
+                sorted(
+                    semantic_custom_node_refs,
+                    key=lambda item: (str(item.get("source", "")), str(item.get("slug", item.get("name", "")))),
+                )
+            )
         if self.requirements.runtime is not None:
             requirements["runtime"] = self.requirements.runtime.to_dict()
         inputs = [
@@ -1008,6 +1085,7 @@ class VibeWorkflow:
     def finalize_metadata(self) -> "VibeWorkflow":
         from vibecomfy.metadata import OUTPUT_NODE_NAMES, _infer_requirements, _register_common_inputs
 
+        self._admit_legacy_custom_node_refs_once()
         manual_inputs = {
             name: replace(vibe_input)
             for name, vibe_input in self.inputs.items()
@@ -1029,6 +1107,7 @@ class VibeWorkflow:
         # Refresh inferred model/custom-node facts without discarding detached
         # diagnostics or the authored runtime declaration.
         previous = self.requirements
+        inferred._refs_were_declared = previous._refs_were_declared
         inferred.missing_models = list(previous.missing_models)
         inferred.missing_nodes = list(previous.missing_nodes)
         inferred.unsupported = list(previous.unsupported)
