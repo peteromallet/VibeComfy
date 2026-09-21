@@ -40,6 +40,17 @@ outputs, artifact locations, and log provenance. `RunResult.completion_path`,
 `vibecomfy run`, and `vibecomfy logs <run-id>` expose that record directly.
 `metadata.json` remains the full execution snapshot.
 
+When declared artifacts are locally custody-backed, completion also writes
+`managed-generation-result.json` beside the existing records. This
+`managed-generation-result.v1` envelope keeps task, attempt, and producer-run
+correlation, declared output-port identity, ordinal, custody-relative path,
+MIME type, byte size, and SHA-256. VibeComfy evidence remains opaque under
+`evidence.producer`; `evidence.transport` is reserved for the transport layer.
+`RunResult.managed_generation_result_path` is `None` when an output is remote,
+missing, or otherwise cannot be hashed and contained, and the metadata/attempt
+records retain the explicit unavailability reason. VibeComfy never marks
+publication as successful.
+
 For an existing RunPod machine, first record a named binding with
 `vibecomfy runpod bind`. A bound run uses the existing `runpod-lifecycle` API
 to attach/status-check the pod, retrieve `output`/`out` through its archive

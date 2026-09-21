@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import importlib
 import json
 import sys
@@ -121,6 +122,136 @@ def test_declared_video_media_does_not_accept_remote_filename_only() -> None:
     assert caught.value.diagnostics[0]["code"] == "final_media_unverified"
 
 
+def _managed_generation_fixture(tmp_path: Path) -> tuple[Path, dict, dict, dict]:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True)
+    source = tmp_path / "comfy-output" / "final.mp4"
+    source.parent.mkdir()
+    source.write_bytes(b"video-fixture")
+    metadata = {
+        "run_id": "producer-run-1",
+        "task_id": "task-host-1",
+        "attempt_id": "execution-host-1",
+        "workflow_id": "workflow-1",
+        "inputs": {"prompt": "a test video"},
+        "created": "2026-09-21T12:00:00+00:00",
+        "prompt_id": "prompt-1",
+        "queued": {"prompt_id": "prompt-1"},
+        "comfy_outputs": {"1": {"gifs": [{"filename": "final.mp4"}]}},
+        "declared_outputs": [{
+            "declaration_ordinal": 0,
+            "node_id": "1",
+            "output_type": "SaveVideo",
+            "name": "video",
+            "artifact_kind": "video",
+            "mime_type": "video/mp4",
+            "filename_prefix": "final",
+        }],
+        "artifact_manifest": {
+            "attribution": [{
+                "path": "final.mp4",
+                "output": "video",
+                "method": "single_named_output",
+            }],
+        },
+        "artifacts": [{
+            "reported_path": "final.mp4",
+            "path": str(source),
+            "filename": "final.mp4",
+            "descriptor": {"filename": "final.mp4"},
+            "source": "local_filesystem",
+        }],
+        "media_validation": {"status": "verified"},
+        "log_provenance": {"available": True, "path": "comfy.log"},
+        "runtime_dependency": {"status": "matching"},
+    }
+    attempt = {"run_id": "producer-run-1", "prompt_id": "prompt-1"}
+    evidence = {"queue_acceptance": {"status": "accepted", "prompt_id": "prompt-1"}}
+    return run_dir, metadata, attempt, evidence
+
+
+def test_managed_generation_result_is_deterministic_and_preserves_video_output(
+    tmp_path: Path,
+) -> None:
+    run_dir, metadata, attempt, evidence = _managed_generation_fixture(tmp_path)
+    payload, unavailable = session_module._build_managed_generation_result(
+        run_dir=run_dir,
+        metadata=metadata,
+        attempt_bundle=attempt,
+        evidence=evidence,
+    )
+    assert unavailable == {}
+    assert payload is not None
+    output = payload["outputs"][0]
+    assert output["output_port"] == "video"
+    assert output["ordinal"] == 0
+    assert output["path"] == "outputs/final.mp4"
+    assert output["media_type"] == "video/mp4"
+    assert output["bytes"] == len(b"video-fixture")
+    assert output["sha256"] == hashlib.sha256(b"video-fixture").hexdigest()
+    again, again_unavailable = session_module._build_managed_generation_result(
+        run_dir=run_dir,
+        metadata=metadata,
+        attempt_bundle=attempt,
+        evidence=evidence,
+    )
+    assert again_unavailable == {}
+    assert again == payload
+    assert json.dumps(again, sort_keys=True, separators=(",", ":")) == json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    )
+
+
+def test_managed_generation_result_keeps_producer_evidence_namespaced_and_identity_stable(
+    tmp_path: Path,
+) -> None:
+    run_dir, metadata, attempt, evidence = _managed_generation_fixture(tmp_path)
+    payload, _ = session_module._build_managed_generation_result(
+        run_dir=run_dir,
+        metadata=metadata,
+        attempt_bundle=attempt,
+        evidence=evidence,
+    )
+    assert payload is not None
+    assert payload["task_id"] == "task-host-1"
+    assert payload["attempt_id"] == "execution-host-1"
+    assert payload["producer_run_id"] == "producer-run-1"
+    assert set(payload["evidence"]) == {"producer", "transport"}
+    assert payload["evidence"]["transport"] == {}
+    assert payload["evidence"]["producer"]["prompt_history"]["prompt_id"] == "prompt-1"
+    assert payload["evidence"]["producer"]["artifacts"][0]["source"] == "local_filesystem"
+    assert "prompt_id" not in payload
+    assert "source" not in payload["outputs"][0]
+
+
+def test_managed_generation_result_refuses_unavailable_and_failed_verification_evidence(
+    tmp_path: Path,
+) -> None:
+    run_dir, metadata, attempt, evidence = _managed_generation_fixture(tmp_path)
+    metadata["artifacts"][0]["path"] = None
+    payload, unavailable = session_module._build_managed_generation_result(
+        run_dir=run_dir,
+        metadata=metadata,
+        attempt_bundle=attempt,
+        evidence=evidence,
+    )
+    assert payload is None
+    assert unavailable["reason"] == "one or more artifacts are unavailable for neutral result emission"
+    assert "sha256" not in json.dumps(unavailable)
+
+    run_dir, metadata, attempt, evidence = _managed_generation_fixture(tmp_path / "invalid")
+    metadata["media_validation"] = {"status": "invalid", "diagnostics": ["corrupt"]}
+    payload, unavailable = session_module._build_managed_generation_result(
+        run_dir=run_dir,
+        metadata=metadata,
+        attempt_bundle=attempt,
+        evidence=evidence,
+    )
+    assert unavailable == {}
+    assert payload is not None
+    assert payload["outcomes"]["verification"]["status"] == "failed"
+
+
 def test_declared_video_media_verifies_shared_filesystem_for_external_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -150,6 +281,66 @@ def test_declared_video_media_verifies_shared_filesystem_for_external_server(
 
     assert result["status"] == "verified"
     assert result["artifacts"][0]["video_streams"] == 1
+
+
+def test_external_server_shared_output_is_custodied_for_managed_result(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "comfy-output"
+    output_root.mkdir()
+    output = output_root / "external.png"
+    output.write_bytes(b"shared image")
+
+    artifacts = session_module._artifact_records(
+        {"1": {"images": [{"filename": "external.png", "subfolder": "", "type": "output"}]}},
+        adapter_kind="external",
+        adapter_endpoint="http://external.test",
+        output_directory=output_root,
+    )
+
+    assert artifacts[0]["path"] == str(output.resolve())
+    assert artifacts[0]["source"] == "shared_filesystem"
+
+    run_dir, metadata, attempt, evidence = _managed_generation_fixture(tmp_path / "managed")
+    metadata["artifacts"] = [{
+        **artifacts[0],
+        "reported_path": "external.png",
+    }]
+    metadata["declared_outputs"][0].update({
+        "name": "image",
+        "artifact_kind": "image",
+        "mime_type": "image/png",
+    })
+    payload, unavailable = session_module._build_managed_generation_result(
+        run_dir=run_dir,
+        metadata=metadata,
+        attempt_bundle=attempt,
+        evidence=evidence,
+    )
+
+    assert unavailable == {}
+    assert payload is not None
+    assert payload["outputs"][0]["media_type"] == "image/png"
+    assert (run_dir / payload["outputs"][0]["path"]).read_bytes() == b"shared image"
+
+
+def test_external_server_temp_descriptor_is_not_claimed_as_shared_output(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "comfy-output"
+    output_root.mkdir()
+    temp_output = output_root / "preview.png"
+    temp_output.write_bytes(b"preview")
+
+    artifacts = session_module._artifact_records(
+        {"1": {"images": [{"filename": "preview.png", "subfolder": "", "type": "temp"}]}},
+        adapter_kind="external",
+        adapter_endpoint="http://external.test",
+        output_directory=output_root,
+    )
+
+    assert artifacts[0]["path"] is None
+    assert artifacts[0]["source"] == "external_comfy_server"
 
 
 def test_external_media_retrieval_failure_is_incomplete_not_final_rejection() -> None:
@@ -971,6 +1162,58 @@ def test_run_external_server_does_not_apply_workflow_session_config(
     assert completion["log_path"] is None
     assert completion["log_provenance"] == result.log_provenance
     assert captured_configs == [None]
+
+
+def test_run_external_server_emits_managed_result_from_shared_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    output_root = tmp_path / "comfy-output"
+    output_root.mkdir()
+    (output_root / "external.png").write_bytes(b"shared image")
+    workflow = _workflow()
+    workflow.outputs = [VibeOutput(
+        "1", "SaveImage", name="image", artifact_kind="image", mime_type="image/png"
+    )]
+    workflow.metadata["comfy_configuration"] = {
+        "output_directory": str(output_root),
+        "task_id": "host-task",
+        "attempt_id": "host-attempt",
+    }
+
+    @asynccontextmanager
+    async def fake_server(*, server_url=None, log_path=None, config=None):
+        yield server_url
+
+    class FakeClient:
+        def __init__(self, server_url: str) -> None:
+            self.server_url = server_url
+
+        async def _post_prompt(self, prompt: dict) -> dict:
+            return {"prompt_id": "prompt-shared"}
+
+        async def history(self, prompt_id: str) -> dict:
+            return _successful_history(
+                prompt_id,
+                {"1": {"images": [{"filename": "external.png", "subfolder": "", "type": "output"}]}},
+            )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(session_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
+
+    result = runtime_run_module.run_sync(
+        *_approved(workflow), server_url="http://external.test"
+    )
+
+    assert result.managed_generation_result_path is not None
+    payload = json.loads(Path(result.managed_generation_result_path).read_text(encoding="utf-8"))
+    assert payload["task_id"] == "host-task"
+    assert payload["attempt_id"] == "host-attempt"
+    assert payload["outputs"][0]["media_type"] == "image/png"
+    staged = Path(result.managed_generation_result_path).parent / payload["outputs"][0]["path"]
+    assert staged.read_bytes() == b"shared image"
 
 
 def test_external_success_keeps_server_facts_in_attempt_and_metadata(tmp_path, monkeypatch):

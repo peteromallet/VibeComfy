@@ -19,6 +19,7 @@ from vibecomfy.runtime.session import (
     _comfy_server_argv,
     _comfyui_command,
     _embedded_configuration_for_session,
+    _managed_generation_identity,
     _run_metadata as _run_metadata_impl,
     apply_memory_profile_override,
     model_fingerprint,
@@ -134,6 +135,19 @@ def test_run_metadata_groups_single_artifact_by_semantic_output() -> None:
             {"path": "/tmp/out/image.png", "output": "image", "method": "single_named_output"},
         ],
     }
+
+
+def test_managed_generation_identity_uses_host_config_for_external_runs() -> None:
+    config = SessionConfig.from_dict(
+        {"task_id": "host-task", "attempt_id": "host-attempt"}
+    )
+
+    identity = _managed_generation_identity(
+        _workflow(), "producer-run", config, None
+    )
+
+    assert identity["task_id"] == "host-task"
+    assert identity["attempt_id"] == "host-attempt"
 
 
 def test_run_metadata_uses_filename_prefix_and_keeps_uncertain_artifacts_unmapped() -> None:

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import datetime
 import hashlib
 import json
+import mimetypes
+import re
 import logging
 import math
 import os
@@ -727,10 +730,35 @@ def _complete_runtime_run(
         schema_provenance=dict(evidence["schema_provenance"]),
     )
     metadata["completion_path"] = str(completion_path)
+    result_payload, result_unavailable = _build_managed_generation_result(
+        run_dir=run_dir,
+        metadata=metadata,
+        attempt_bundle=attempt_bundle,
+        evidence=evidence,
+    )
+    result_path: Path | None = None
+    if result_payload is not None:
+        try:
+            result_path = atomic_write_json(
+                run_dir / "managed-generation-result.json", result_payload
+            )
+        except Exception as exc:
+            raise QueueError(
+                "managed generation result could not be persisted",
+                next_action="vibecomfy runtime doctor",
+            ) from exc
+    result_state = (
+        {"status": "available", "path": str(result_path)}
+        if result_path is not None
+        else {"status": "unavailable", **result_unavailable}
+    )
+    metadata["managed_generation_result"] = result_state
+    attempt_bundle["managed_generation_result"] = result_state
     try:
+        write_attempt_json(run_dir, attempt_bundle)
         metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
     except Exception as exc:
-        raise QueueError("runtime metadata could not be persisted",
+        raise QueueError("runtime completion evidence could not be persisted",
                          next_action="vibecomfy runtime doctor") from exc
     try:
         atomic_write_json(completion_path, _completion_record(run_dir, metadata))
@@ -789,6 +817,229 @@ def _completion_record(run_dir: Path, metadata: Mapping[str, Any]) -> dict[str, 
            if isinstance(metadata.get("output_verification"), Mapping) else {}),
         **({"runtime_dependency": dict(metadata["runtime_dependency"])}
            if isinstance(metadata.get("runtime_dependency"), Mapping) else {}),
+    }
+
+
+_RESULT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+_RESULT_MIME_RE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$")
+
+
+def _build_managed_generation_result(
+    *,
+    run_dir: Path,
+    metadata: Mapping[str, Any],
+    attempt_bundle: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Build the engine-neutral result only from custody-backed artifacts."""
+    raw_declared = metadata.get("declared_outputs")
+    declared = [dict(item) for item in raw_declared if isinstance(item, Mapping)] if isinstance(raw_declared, list) else []
+    raw_artifacts = metadata.get("artifacts")
+    artifacts = [dict(item) for item in raw_artifacts if isinstance(item, Mapping)] if isinstance(raw_artifacts, list) else []
+    if not declared:
+        return None, {"reason": "no declared VibeOutput metadata"}
+    if not artifacts:
+        return None, {"reason": "no attributed artifacts"}
+
+    attribution_by_path: dict[str, str] = {}
+    manifest = metadata.get("artifact_manifest")
+    if isinstance(manifest, Mapping) and isinstance(manifest.get("attribution"), list):
+        for item in manifest["attribution"]:
+            if isinstance(item, Mapping) and isinstance(item.get("path"), str) and isinstance(item.get("output"), str):
+                attribution_by_path[item["path"]] = item["output"]
+
+    def declaration_for(artifact: Mapping[str, Any]) -> dict[str, Any] | None:
+        reported = str(artifact.get("reported_path") or "")
+        output_name = attribution_by_path.get(reported)
+        if output_name is not None:
+            matches = [item for item in declared if item.get("name") == output_name]
+            if len(matches) == 1:
+                return matches[0]
+            return None
+        if len(declared) == 1 and len(artifacts) == 1:
+            return declared[0]
+        return None
+
+    indexed: list[tuple[int, str, int, Mapping[str, Any], dict[str, Any]]] = []
+    for index, artifact in enumerate(artifacts):
+        declaration = declaration_for(artifact)
+        if declaration is None:
+            return None, {
+                "reason": "artifact attribution did not resolve to one declared VibeOutput",
+                "artifacts": [{"reported_path": item.get("reported_path")} for item in artifacts],
+            }
+        indexed.append((
+            int(declaration.get("declaration_ordinal", 0)),
+            str(artifact.get("reported_path") or ""),
+            index,
+            artifact,
+            declaration,
+        ))
+    indexed.sort(key=lambda item: item[:3])
+
+    output_rows: list[dict[str, Any]] = []
+    unavailable: list[dict[str, Any]] = []
+    custody_root = run_dir.resolve(strict=False)
+    for ordinal, (_declaration_ordinal, _reported, _index, artifact, declaration) in enumerate(indexed):
+        raw_path = artifact.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            unavailable.append({
+                "reported_path": artifact.get("reported_path"),
+                "reason": "artifact has no local path",
+            })
+            continue
+        try:
+            source = Path(raw_path).expanduser().resolve(strict=True)
+            if not source.is_file():
+                raise OSError("artifact path is not a file")
+            try:
+                relative = source.relative_to(custody_root)
+            except ValueError:
+                descriptor = artifact.get("descriptor")
+                if isinstance(descriptor, Mapping):
+                    relative_descriptor = _normalized_descriptor_path(dict(descriptor))
+                    destination = custody_root / "outputs" / Path(*relative_descriptor.parts)
+                else:
+                    destination = custody_root / "outputs" / f"{ordinal:04d}-{source.name}"
+                destination = destination.resolve(strict=False)
+                destination.relative_to(custody_root)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+                relative = destination.relative_to(custody_root)
+            staged = custody_root / relative
+            size_before = staged.stat().st_size
+            digest = hashlib.sha256()
+            with staged.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if staged.stat().st_size != size_before:
+                raise OSError("artifact changed while hashing")
+        except (OSError, ValueError, UnicodeError, RuntimeNodeError) as exc:
+            unavailable.append({
+                "reported_path": artifact.get("reported_path"),
+                "reason": str(exc) or type(exc).__name__,
+            })
+            continue
+        media_type = str(declaration.get("mime_type") or "").strip().lower()
+        output_port = str(declaration.get("name") or declaration.get("output_type") or "")
+        if not media_type:
+            media_type = (mimetypes.guess_type(staged.name)[0] or "").lower()
+        if (
+            not _RESULT_IDENTIFIER_RE.fullmatch(output_port)
+            or _RESULT_MIME_RE.fullmatch(media_type) is None
+        ):
+            unavailable.append({
+                "reported_path": artifact.get("reported_path"),
+                "reason": "declared output lacks a valid output port or MIME type",
+            })
+            continue
+        producer_output_id = f"vibecomfy:{output_port}:{ordinal}"
+        output_rows.append({
+            "producer_output_id": producer_output_id,
+            "output_port": output_port,
+            "ordinal": ordinal,
+            "path": relative.as_posix(),
+            "media_type": media_type,
+            "bytes": size_before,
+            "sha256": digest.hexdigest(),
+        })
+
+    if unavailable or len(output_rows) != len(indexed):
+        return None, {
+            "reason": "one or more artifacts are unavailable for neutral result emission",
+            "artifacts": unavailable,
+        }
+
+    raw_inputs = metadata.get("inputs")
+    inputs = dict(raw_inputs) if isinstance(raw_inputs, Mapping) else {}
+    media_validation = metadata.get("media_validation")
+    verification_status = (
+        "succeeded"
+        if not isinstance(media_validation, Mapping)
+        or media_validation.get("status") in {"verified", "not_required"}
+        else "failed"
+    )
+    producer_metadata = {
+        key: value
+        for key, value in metadata.items()
+        if key not in {"managed_generation_result"}
+    }
+    producer = {
+        "runtime": dict(evidence),
+        "prompt_history": {
+            "prompt_id": metadata.get("prompt_id"),
+            "queued": metadata.get("queued"),
+            "history": metadata.get("comfy_outputs"),
+        },
+        "attempt": {
+            "path": str(run_dir / "attempt.json"),
+            "record": dict(attempt_bundle),
+        },
+        "metadata": {
+            "path": str(run_dir / "metadata.json"),
+            "record": producer_metadata,
+        },
+        "artifacts": [dict(item) for item in artifacts],
+        "dependency": metadata.get("runtime_dependency"),
+        "log": dict(metadata.get("log_provenance") or {}),
+        "media_verification": metadata.get("media_validation"),
+    }
+    return {
+        "schema_version": 1,
+        "kind": "managed-generation-result.v1",
+        "inputs": inputs,
+        "outputs": output_rows,
+        "created": str(metadata.get("created") or datetime.datetime.now(datetime.timezone.utc).isoformat()),
+        "warnings": [],
+        "task_id": str(metadata.get("task_id") or metadata.get("workflow_id") or "vibecomfy-task"),
+        "attempt_id": str(metadata.get("attempt_id") or metadata.get("run_id")),
+        "producer_run_id": str(metadata.get("run_id")),
+        "outcomes": {
+            "execution": {"status": "succeeded"},
+            "retrieval": {"status": "succeeded"},
+            "verification": {"status": verification_status},
+            "publication": {"status": "not_started"},
+        },
+        "evidence": {"producer": producer, "transport": {}},
+    }, {}
+
+
+def _managed_generation_identity(
+    workflow: VibeWorkflow,
+    run_id: str,
+    config: SessionConfig | None,
+    run_context: RunContext | None,
+) -> dict[str, str]:
+    sources: list[Mapping[str, Any]] = []
+    if run_context is not None:
+        sources.append({
+            "task_id": run_context.task_id,
+            "attempt_id": run_context.attempt_id,
+            "execution_id": run_context.execution_id,
+        })
+    if config is not None:
+        sources.append(config.extra)
+    if isinstance(workflow.metadata, Mapping):
+        sources.append(workflow.metadata)
+
+    def first(*names: str) -> str | None:
+        for source in sources:
+            for name in names:
+                value = source.get(name)
+                if value is not None and str(value).strip():
+                    return str(value).strip()
+        return None
+
+    def identifier(value: str | None, fallback: str) -> str:
+        raw = value or fallback
+        normalized = re.sub(r"[^A-Za-z0-9._:-]+", "-", raw).strip("-")
+        return normalized or fallback
+
+    execution_id = first("execution_id", "execution_identity")
+    return {
+        "task_id": identifier(first("task_id"), identifier(workflow.id, "vibecomfy-task")),
+        "attempt_id": identifier(first("attempt_id", "execution_id", "execution_identity"), run_id),
+        **({"execution_id": execution_id} if execution_id is not None else {}),
     }
 
 
@@ -1056,6 +1307,9 @@ class RunResult:
     media_validated: bool = False
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     log_provenance: dict[str, Any] = field(default_factory=dict)
+    managed_generation_result_path: str | None = None
+    managed_generation_result: dict[str, Any] | None = None
+
 
 
 class PreparedPrompt(dict):
@@ -1255,6 +1509,7 @@ class VibeSession(Protocol):
         parent_run_id: str | None = None,
         dependency_mode: str = "reuse",
         dependency_report: Mapping[str, Any] | None = None,
+        run_context: RunContext | None = None,
     ) -> RunResult:
         ...
 
@@ -1727,6 +1982,7 @@ class EmbeddedSession:
                 dependency_report=dependency_report,
                 output_verification=output_verification,
                 media_validation=media_validation,
+                run_context=run_context,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -1747,6 +2003,12 @@ class EmbeddedSession:
                 media_validated=bool(metadata.get("media_validated", False)),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
+                managed_generation_result_path=(
+                    str(metadata["managed_generation_result"]["path"])
+                    if isinstance(metadata.get("managed_generation_result"), Mapping)
+                    and metadata["managed_generation_result"].get("status") == "available"
+                    else None
+                ),
             )
         except asyncio.CancelledError as exc:
             stop_reason = "cancelled"
@@ -1897,6 +2159,7 @@ class ServerSession:
         parent_run_id: str | None = None,
         dependency_mode: str = "reuse",
         dependency_report: Mapping[str, Any] | None = None,
+        run_context: RunContext | None = None,
     ) -> RunResult:
         workflow = _require_runtime_boundary(record, bundle)
         if self._inflight_run is not None and not self._inflight_run.done():
@@ -1912,6 +2175,8 @@ class ServerSession:
                 kwargs["dependency_mode"] = dependency_mode
             if dependency_report is not None:
                 kwargs["dependency_report"] = dependency_report
+            if run_context is not None:
+                kwargs["run_context"] = run_context
             return await self._run_untracked(
                 record, bundle, backend=backend, strict_drift=resolved_strict,
                 chain_id=chain_id, parent_run_id=parent_run_id,
@@ -1934,9 +2199,14 @@ class ServerSession:
         shared_models_root: str | Path | None = None,
         dependency_mode: str = "reuse",
         dependency_report: Mapping[str, Any] | None = None,
+        run_context: RunContext | None = None,
     ) -> RunResult:
         workflow = _require_runtime_boundary(record, bundle)
-        run_id, run_dir = _allocate_request_root("run", config=self.config)
+        run_id, run_dir = (
+            (run_context.run_id, run_context.run_dir)
+            if run_context is not None
+            else _allocate_request_root("run", config=self.config)
+        )
         if dependency_mode == "sync" and self.process is not None and self.process.returncode is None:
             exc = RuntimeDependencyError(
                 "--deps sync refused while the managed server is active; stop/restart the managed session first"
@@ -2200,6 +2470,7 @@ class ServerSession:
                 dependency_report=dependency_report,
                 output_verification=output_verification,
                 media_validation=media_validation,
+                run_context=run_context,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -2220,6 +2491,12 @@ class ServerSession:
                 media_validated=bool(metadata.get("media_validated", False)),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
+                managed_generation_result_path=(
+                    str(metadata["managed_generation_result"]["path"])
+                    if isinstance(metadata.get("managed_generation_result"), Mapping)
+                    and metadata["managed_generation_result"].get("status") == "available"
+                    else None
+                ),
             )
         except asyncio.CancelledError as exc:
             stop_reason = "cancelled"
@@ -3304,6 +3581,8 @@ def _run_metadata(
     output_verification: Mapping[str, Any] | None = None,
     media_validation: Mapping[str, Any] | None = None,
     adapter_details: Mapping[str, Any] | None = None,
+    run_context: RunContext | None = None,
+    identity_config: SessionConfig | None = None,
 ) -> dict[str, Any]:
     workflow = _require_runtime_boundary(record, bundle)
     approved = record.to_dict()
@@ -3322,6 +3601,22 @@ def _run_metadata(
         artifacts = list(artifacts)
     outputs = [artifact["reported_path"] for artifact in artifacts]
     artifact_manifest = _artifact_manifest(workflow, outputs)
+    identity = _managed_generation_identity(
+        workflow, run_id, config or identity_config, run_context
+    )
+    declared_outputs = [
+        {
+            "declaration_ordinal": ordinal,
+            "node_id": str(output.node_id),
+            "output_type": str(output.output_type),
+            "name": output.name,
+            "artifact_kind": output.artifact_kind,
+            "mime_type": output.mime_type,
+            "filename_prefix": output.filename_prefix,
+            "expected_cardinality": output.expected_cardinality,
+        }
+        for ordinal, output in enumerate(workflow.outputs)
+    ]
     log_provenance = _log_provenance(
         log_path,
         runtime,
@@ -3358,6 +3653,7 @@ def _run_metadata(
     metadata = {
         "run_id": run_id,
         "workflow_id": workflow.id,
+        **identity,
         "source": asdict(workflow.source),
         "workflow_hash": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
         "api_digest": approved["api_digest"],
@@ -3377,6 +3673,7 @@ def _run_metadata(
         "prompt_id": normalize_prompt_id(queued),
         "comfy_outputs": comfy_outputs,
         "artifact_manifest": artifact_manifest,
+        "declared_outputs": declared_outputs,
         "artifact_paths": outputs,
         "outputs": outputs,
         "artifacts": artifacts,
@@ -4131,6 +4428,20 @@ def _artifact_records(
         if remote_adapter and adapter_endpoint and descriptor:
             record["location"] = _comfy_view_url(adapter_endpoint, descriptor)
             record["path"] = None
+            if output_directory is not None and str(
+                descriptor.get("type") or "output"
+            ) == "output":
+                try:
+                    shared_root = Path(output_directory).expanduser().resolve(strict=True)
+                    shared_path = Path(output).expanduser().resolve(strict=True)
+                    shared_path.relative_to(shared_root)
+                    if shared_path.is_file():
+                        record["path"] = str(shared_path)
+                        record["source"] = "shared_filesystem"
+                except (OSError, ValueError):
+                    # The server's output may be remote-only.  Keep the
+                    # locator while refusing to claim producer custody.
+                    pass
         elif remote_adapter:
             record["location"] = None
             record["path"] = None

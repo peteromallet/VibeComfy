@@ -924,6 +924,8 @@ async def run(
                 output_verification=output_verification,
                 media_validation=media_validation,
                 adapter_details=lifecycle_details,
+                run_context=run_context,
+                identity_config=resolved_config,
             )
             metadata_path = _complete_runtime_run(
                 run_dir=run_dir, attempt_bundle=attempt_bundle, journal_state=journal_state,
@@ -945,6 +947,12 @@ async def run(
                 media_validated=bool(metadata.get("media_validated", False)),
                 artifacts=list(metadata.get("artifacts", [])),
                 log_provenance=dict(metadata.get("log_provenance", {})),
+                managed_generation_result_path=(
+                    str(metadata["managed_generation_result"]["path"])
+                    if isinstance(metadata.get("managed_generation_result"), Mapping)
+                    and metadata["managed_generation_result"].get("status") == "available"
+                    else None
+                ),
             )
         except asyncio.CancelledError as exc:
             _persist_runtime_failure(

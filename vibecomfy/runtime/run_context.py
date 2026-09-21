@@ -17,13 +17,16 @@ class RunContext:
     phase: str = "setup"
     error: BaseException | None = None
     diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    task_id: str | None = None
+    attempt_id: str | None = None
+    execution_id: str | None = None
 
     @property
     def receipt_path(self) -> Path:
         return self.run_dir / "attempt.json"
 
     def begin(self, reference: str) -> None:
-        atomic_write_json(self.receipt_path, {
+        payload: dict[str, Any] = {
             "run_id": self.run_id,
             "receipt_path": str(self.receipt_path),
             "source_reference": reference,
@@ -34,7 +37,12 @@ class RunContext:
             "queue_acceptance": {"status": "not_attempted", "prompt_id": None},
             "prompt_id": None,
             "diagnostics": [],
-        })
+        }
+        for field_name in ("task_id", "attempt_id", "execution_id"):
+            value = getattr(self, field_name)
+            if value is not None:
+                payload[field_name] = value
+        atomic_write_json(self.receipt_path, payload)
 
     def fail(self, error: BaseException) -> dict[str, Any]:
         payload = json.loads(self.receipt_path.read_text(encoding="utf-8"))
