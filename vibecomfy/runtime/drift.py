@@ -29,6 +29,16 @@ logger = logging.getLogger(__name__)
 _drift_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
 
 
+def _has_custom_node_requirements(workflow: VibeWorkflow) -> bool:
+    """Return whether *workflow* declares any custom-node pack."""
+    requirements = getattr(workflow, "requirements", None)
+    return bool(
+        getattr(requirements, "custom_nodes", ())
+        or getattr(requirements, "custom_node_refs", ())
+    )
+
+
+
 def _cache_key(workflow: VibeWorkflow, lockfile_path: str | Path | None = None) -> tuple[Any, ...]:
     """Return a stable cache key for the current process lifetime.
 
@@ -149,7 +159,9 @@ def _collect_nodepack_drift(
     from vibecomfy.node_packs import LockEntry, read_lockfile
     from vibecomfy.custom_node_refs import effective_lock_entries
 
-    lock_entries: list[LockEntry] = effective_lock_entries(workflow, read_lockfile(resolve_lockfile_path(lockfile_path)))
+    lock_entries: list[LockEntry] = effective_lock_entries(
+        workflow, read_lockfile(resolve_lockfile_path(lockfile_path))
+    )
     pinned["custom_node_packs"] = list(workflow.requirements.custom_nodes)
     pinned["lockfile_entries"] = {
         entry.name: {
@@ -223,7 +235,7 @@ def _collect_nodepack_drift(
                     f"pinned {pinned_hash}"
                 )
                 pack_info["schema_mismatch"] = True
-            elif schema_check["status"] != "canonical":
+            elif schema_check["status"] not in {"canonical", "unverified_legacy"}:
                 mismatches.append(f"{entry.name} schema evidence is {schema_check['status']}: {schema_check.get('reason', 'unverified')}")
 
         # Source file sha256 drift (reuse doctor.py pattern)
@@ -417,7 +429,10 @@ def enforce_strict_drift(
     This is the pre-queue gate wired into all session paths when
     ``SessionConfig.strict_drift`` is ``True``.
     """
-    drift = collect_drift(workflow, lockfile_path=lockfile_path)
+    effective_lockfile_path = lockfile_path
+    if effective_lockfile_path is None and not _has_custom_node_requirements(workflow):
+        effective_lockfile_path = Path.cwd() / ".vibecomfy-no-lockfile"
+    drift = collect_drift(workflow, lockfile_path=effective_lockfile_path)
     mismatches: list[str] = drift.get("mismatches", [])
     if mismatches:
         raise DriftError(
