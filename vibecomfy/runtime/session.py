@@ -3086,7 +3086,10 @@ def current_source_content_digest() -> str | None:
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=5,
+            # Prepared RunPod checkouts can live on a network volume.  Keep
+            # the attestation bounded, but allow the content walk to finish
+            # instead of turning a slow volume into an unavailable identity.
+            timeout=60,
             env=_checkout_git_environment(),
         )
     except (OSError, subprocess.SubprocessError):
@@ -3099,6 +3102,13 @@ def current_source_content_digest() -> str | None:
             continue
         try:
             relative = os.fsdecode(raw_path)
+            # Bytecode is generated runtime state.  Older prepared checkouts
+            # may have tracked stale __pycache__ entries even though source
+            # overlays intentionally omit them; they must not invalidate the
+            # source attestation when absent.
+            parts = PurePosixPath(relative).parts
+            if relative.endswith(".pyc") or "__pycache__" in parts:
+                continue
             candidate = root / relative
             if candidate.is_symlink() or not candidate.is_file():
                 return None
