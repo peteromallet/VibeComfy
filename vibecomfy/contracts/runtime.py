@@ -150,14 +150,7 @@ class RuntimeRequirements:
             )
         if python_version is None:
             python_version = nested_python_version
-        packages_raw = value.get("packages", value.get("python_packages", {})) or {}
-        if not isinstance(packages_raw, Mapping):
-            raise RuntimeDependencyError("requirements.runtime.packages must be a mapping")
-        packages: dict[str, str] = {}
-        for name, constraint in packages_raw.items():
-            if not isinstance(name, str) or not name.strip() or not isinstance(constraint, str) or not constraint.strip():
-                raise RuntimeDependencyError("requirements.runtime.packages entries need nonblank name and constraint")
-            packages[name.strip()] = constraint.strip()
+        packages = _merge_package_constraints(value)
         indexes_raw = value.get(
             "package_indexes",
             value.get("pip_indexes", value.get("indexes", value.get("package_index", []))),
@@ -209,7 +202,7 @@ class RuntimeRequirements:
             package_indexes=tuple(dict.fromkeys(item.strip() for item in indexes_raw)),
             launch_flags=tuple(dict.fromkeys(item.strip() for item in flags_raw)),
             models=tuple(_object_list(value.get("models"), "requirements.runtime.models")),
-            custom_nodes=tuple(_object_list(value.get("custom_nodes"), "requirements.runtime.custom_nodes")),
+            custom_nodes=tuple(_normalize_runtime_custom_nodes(value.get("custom_nodes"))),
             extras={str(key): item for key, item in value.items() if key not in known},
         )
 
@@ -235,6 +228,70 @@ def _object_list(value: Any, label: str) -> list[dict[str, Any]]:
             result.append({str(key): child for key, child in item.items()})
         else:
             raise RuntimeDependencyError(f"{label} entries must be strings or mappings")
+    return result
+
+
+def _merge_package_constraints(value: Mapping[str, Any]) -> dict[str, str]:
+    """Merge package aliases while rejecting contradictory exact facts."""
+    packages: dict[str, str] = {}
+    locations: dict[str, tuple[str, str]] = {}
+    for key, label in (("packages", "requirements.runtime.packages"), ("python_packages", "requirements.runtime.python_packages")):
+        raw = value.get(key)
+        if raw is None:
+            continue
+        if not isinstance(raw, Mapping):
+            raise RuntimeDependencyError(f"{label} must be a mapping")
+        for name, constraint in raw.items():
+            if not isinstance(name, str) or not name.strip() or not isinstance(constraint, str) or not constraint.strip():
+                raise RuntimeDependencyError(f"{label} entries need nonblank name and constraint")
+            normalized_name = name.strip()
+            normalized_constraint = constraint.strip()
+            previous = packages.get(normalized_name)
+            if previous is not None and previous != normalized_constraint:
+                old_location, old_value = locations[normalized_name]
+                raise RuntimeDependencyError(
+                    f"conflicting runtime package constraint for {normalized_name!r}: "
+                    f"{old_value!r} at {old_location} conflicts with "
+                    f"{normalized_constraint!r} at {label}[{name!r}]"
+                )
+            packages[normalized_name] = normalized_constraint
+            locations[normalized_name] = (f"{label}[{name!r}]", normalized_constraint)
+    return packages
+
+
+def _normalize_runtime_custom_nodes(value: Any) -> list[dict[str, Any]]:
+    """Normalize legacy runtime custom-node rows and reject exact conflicts."""
+    rows = _object_list(value, "requirements.runtime.custom_nodes")
+    seen: dict[str, tuple[dict[str, Any], int]] = {}
+    result: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        selector = str(row.get("slug") or row.get("name") or "").strip()
+        if not selector:
+            # Preserve old descriptive rows that have no selector.
+            result.append(row)
+            continue
+        prior = seen.get(selector)
+        if prior is not None:
+            old, old_index = prior
+            for field in ("commit", "version", "url", "path"):
+                old_value, new_value = old.get(field), row.get(field)
+                if old_value not in (None, "") and new_value not in (None, "") and str(old_value) != str(new_value):
+                    raise RuntimeDependencyError(
+                        f"conflicting exact runtime custom-node ref {selector!r}: "
+                        f"{field} {old_value!r} at requirements.runtime.custom_nodes[{old_index}] "
+                        f"conflicts with {new_value!r} at requirements.runtime.custom_nodes[{index}]"
+                    )
+            merged = dict(old)
+            for key, child in row.items():
+                if key in {"classes", "class_set"} and isinstance(child, (list, tuple)):
+                    merged[key] = sorted(set(merged.get(key, ())) | set(child))
+                else:
+                    merged.setdefault(key, child)
+            result[result.index(old)] = merged
+            seen[selector] = (merged, old_index)
+        else:
+            seen[selector] = (row, index)
+            result.append(row)
     return result
 
 

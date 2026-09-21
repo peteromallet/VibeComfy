@@ -248,6 +248,27 @@ def test_sync_runtime_only_installs_nonmatching_packages() -> None:
     assert calls == [["pandas==2.2.0"]]
 
 
+def test_sync_runtime_can_scope_mutation_but_reports_unselected_drift() -> None:
+    runtime = RuntimeRequirements.from_dict(
+        {"packages": {"numpy": "==1.26.0", "pandas": "==2.2.0"}}
+    )
+    assert runtime is not None
+    calls: list[list[str]] = []
+    report = sync_runtime(
+        runtime,
+        target={"packages": {"numpy": "1.25.0", "pandas": "1.5.0"}},
+        sync_packages=["numpy"],
+        installer=lambda specs, _offline: calls.append(specs),
+        verify=lambda: {"packages": {"numpy": "1.26.0", "pandas": "1.5.0"}},
+    )
+    assert calls == [["numpy==1.26.0"]]
+    assert report["status"] == "incompatible"
+    assert report["partial"] is True
+    assert report["synced"] is True
+    assert report["selected_packages"] == ["numpy"]
+    assert any("packages.pandas" in item for item in report["remaining_mismatches"])
+
+
 def test_public_session_surfaces_expose_dependency_mode() -> None:
     for fn in (VibeSession.run, EmbeddedSession.run, ServerSession.run, run_embedded_with_session):
         assert inspect.signature(fn).parameters["dependency_mode"].kind is inspect.Parameter.KEYWORD_ONLY

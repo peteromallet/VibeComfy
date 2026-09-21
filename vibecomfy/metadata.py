@@ -104,4 +104,18 @@ def _infer_requirements(workflow: VibeWorkflow) -> WorkflowRequirements:
             if key.endswith("_name") and isinstance(value, str):
                 if value.lower().endswith(MODEL_FILE_EXTENSIONS):
                     models.append(value)
-    return WorkflowRequirements(models=sorted(set(models)), custom_nodes=sorted(set(custom_nodes)))
+    previous = getattr(workflow, "requirements", None)
+    # Inferred graph facts are additive; authored exact custom-node refs are
+    # semantic declarations and must survive the inference refresh.
+    authored_refs = list(getattr(previous, "custom_node_refs", ()) or ())
+    metadata_requirements = workflow.metadata.get("requirements")
+    if isinstance(metadata_requirements, dict):
+        from vibecomfy.custom_node_refs import normalize_custom_node_requirements
+
+        normalized, _warnings = normalize_custom_node_requirements(metadata_requirements)
+        custom_nodes.extend(normalized.get("custom_nodes") or ())
+    return WorkflowRequirements(
+        models=sorted(set(models)),
+        custom_nodes=sorted(set(custom_nodes)),
+        custom_node_refs=authored_refs,
+    )

@@ -12,6 +12,7 @@ lockfile updates within the same process lifetime.
 from __future__ import annotations
 
 import logging
+import hashlib
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -25,10 +26,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Per-process cache — keyed by (lockfile_path, lockfile_mtime, workflow_id)
 # ---------------------------------------------------------------------------
-_drift_cache: dict[tuple[str, float, str], dict[str, Any]] = {}
+_drift_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
 
 
-def _cache_key(workflow: VibeWorkflow, lockfile_path: str | Path | None = None) -> tuple[str, float, str]:
+def _cache_key(workflow: VibeWorkflow, lockfile_path: str | Path | None = None) -> tuple[Any, ...]:
     """Return a stable cache key for the current process lifetime.
 
     Uses resolved lockfile path and mtime (so alternate explicit lockfiles and
@@ -36,7 +37,37 @@ def _cache_key(workflow: VibeWorkflow, lockfile_path: str | Path | None = None) 
     """
     lock_path = resolve_lockfile_path(lockfile_path)
     mtime = lock_path.stat().st_mtime if lock_path.is_file() else 0.0
-    return (str(lock_path.resolve()), mtime, workflow.id)
+    semantic_digest = getattr(workflow, "semantic_digest", None)
+    digest = semantic_digest() if callable(semantic_digest) else None
+    observed: list[tuple[Any, ...]] = []
+    try:
+        from vibecomfy.custom_node_refs import effective_lock_entries
+        from vibecomfy.node_packs import read_lockfile
+        for entry in effective_lock_entries(workflow, read_lockfile(lock_path)):
+            directory = _nodepack_dir(entry.name)
+            source_state: list[tuple[str, str | None]] = []
+            if directory is not None:
+                for rel_path in sorted(entry.source_sha256):
+                    source_path = directory / rel_path
+                    digest = (
+                        hashlib.sha256(source_path.read_bytes()).hexdigest()
+                        if source_path.is_file() else None
+                    )
+                    source_state.append((rel_path, digest))
+            schema_state = _canonical_pack_schema_hash(entry)
+            observed.append(
+                (
+                    entry.name,
+                    _git_head(directory) if directory else None,
+                    _git_origin(directory) if directory else None,
+                    tuple(source_state),
+                    schema_state.get("hash"),
+                    schema_state.get("status"),
+                )
+            )
+    except Exception:
+        observed.append(("__unverified__", None))
+    return (str(lock_path.resolve()), mtime, workflow.id, digest, tuple(observed))
 
 
 def collect_drift(
@@ -116,8 +147,9 @@ def _collect_nodepack_drift(
 ) -> None:
     """Compare template-pinned packs against installed state."""
     from vibecomfy.node_packs import LockEntry, read_lockfile
+    from vibecomfy.custom_node_refs import effective_lock_entries
 
-    lock_entries: list[LockEntry] = read_lockfile(resolve_lockfile_path(lockfile_path))
+    lock_entries: list[LockEntry] = effective_lock_entries(workflow, read_lockfile(resolve_lockfile_path(lockfile_path)))
     pinned["custom_node_packs"] = list(workflow.requirements.custom_nodes)
     pinned["lockfile_entries"] = {
         entry.name: {
@@ -143,7 +175,9 @@ def _collect_nodepack_drift(
         pack_dir = _nodepack_dir(entry.name)
         if pack_dir is None:
             pack_info["installed_git_head"] = None
-            pack_info["warning"] = f"{entry.name} in lockfile but not installed"
+            pack_info["status"] = "unverified"
+            pack_info["warning"] = f"{entry.name} in requirements is not installed"
+            mismatches.append(f"{entry.name} installed checkout is unavailable; installation state is unverified")
             actual_packs[entry.name] = pack_info
             continue
 
@@ -152,11 +186,18 @@ def _collect_nodepack_drift(
         pack_info["pack_dir"] = str(pack_dir)
 
         if git_head is None:
+            pack_info["status"] = "unverified"
             pack_info["warning"] = (
                 f"{entry.name} installed at {pack_dir} but git HEAD unreadable"
             )
             actual_packs[entry.name] = pack_info
             continue
+
+        origin = _git_origin(pack_dir)
+        pack_info["installed_origin"] = origin
+        if entry.url and origin and origin.rstrip("/") != entry.url.rstrip("/"):
+            mismatches.append(f"{entry.name} origin {origin} does not match declared {entry.url}")
+            pack_info["origin_mismatch"] = True
 
         if git_head != entry.git_commit_sha:
             mismatches.append(
@@ -182,6 +223,8 @@ def _collect_nodepack_drift(
                     f"pinned {pinned_hash}"
                 )
                 pack_info["schema_mismatch"] = True
+            elif schema_check["status"] != "canonical":
+                mismatches.append(f"{entry.name} schema evidence is {schema_check['status']}: {schema_check.get('reason', 'unverified')}")
 
         # Source file sha256 drift (reuse doctor.py pattern)
         for rel_path, expected_hash in entry.source_sha256.items():
@@ -294,6 +337,17 @@ def _git_head(pack_dir: Path) -> str | None:
             check=True,
             capture_output=True,
             text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def _git_origin(pack_dir: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(pack_dir), "remote", "get-url", "origin"],
+            check=True, capture_output=True, text=True,
         )
     except (OSError, subprocess.CalledProcessError):
         return None

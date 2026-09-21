@@ -31,6 +31,21 @@ queueing. Resolved workflows reuse the existing fetch, lockfile, session, and
 bounded download plumbing. Explicit `--server-url` runs remain remote and
 non-mutating.
 
+`vibecomfy run` allocates `out/runs/<run_id>/attempt.json` under the selected
+runtime root before schema discovery or workflow Python loading. Pre-queue
+failures finalize that same receipt with the failed phase, structured error
+and diagnostics, `queue_status: not_attempted`, and a null prompt id. Execution
+reuses the allocated directory across embedded, managed, and external paths;
+accepted or uncertain queue witnesses remain authoritative on later failures.
+
+Explicit external servers supply runtime facts through live `/system_stats`.
+Receipts retain declared requirements separately from observed versions and
+`observed_argv`; unreported packages and commits remain unverified. External
+launch-flag differences warn by default. `--strict-external-launch-flags`
+rejects observed differences when explicitly requested. Managed sessions still
+enforce their declared launch flags. No dependency installation or server
+restart is implied by an external evidence check.
+
 ## HTTP Surface
 
 VibeComfy currently uses:
@@ -115,6 +130,15 @@ Run metadata keeps the legacy `outputs` list as resolved artifact paths. It also
 - `port`
 - `strict_drift`: fail the run when the captured workflow has runtime drift
 - `extra`: raw HiddenSwitch configuration keys not represented by typed fields
+
+`vibecomfy run --deps sync --deps-sync-package NAME` scopes managed alignment
+to selected declared runtime packages or custom-node packs; the report keeps
+the complete expected/actual predicates and any remaining mismatches. For an
+intentional advisory experiment, pass both `--deps-deviation-scope` and
+`--deps-deviation-reason`. The attempt receipt records that scope and reason,
+but compatibility remains visibly `noncompliant`/`unverified`; canonical
+requirements are not rewritten and missing nodes or unlaunchable backends
+still fail.
 
 `EmbeddedSession` holds one `Comfy()` context across multiple `run()` calls. `ServerSession` holds one `comfyui serve` subprocess and uses HTTP for readiness, prompt queueing, and explicit flush.
 

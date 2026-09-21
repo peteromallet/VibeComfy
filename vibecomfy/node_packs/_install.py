@@ -1,9 +1,14 @@
 from __future__ import annotations
+import contextvars
+import importlib.metadata
 import importlib.util, json, os, re, shutil, socket, subprocess, sys, tempfile, time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Protocol, Sequence
 from urllib.parse import urlparse
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
+from packaging.requirements import InvalidRequirement, Requirement
 from ._defs import CustomNodePack, get_known_node_packs, resolve_node_packs, unresolved_class_types
 from ._lockfile import LockEntry, upsert_lockfile_entry
 from vibecomfy.registry.pack_resolver import PackNotFoundError, PackRef
@@ -17,6 +22,12 @@ InstallWitnessState = Literal["clean", "dirty", "missing", "incomplete", "unknow
 DEFAULT_INSTALL_ROOT = Path("custom_nodes")  # Canonical install root for custom node packs.
 INSTALL_STATE_DIR = ".vibecomfy-install-state"
 SENTINEL_LEASE_SECONDS = 1800  # 30 minutes
+_ACTIVE_PIP_CONSTRAINT: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "vibecomfy_active_pip_constraint", default=None
+)
+_ACTIVE_RUNTIME_REQUIREMENTS: contextvars.ContextVar[tuple[str, ...]] = contextvars.ContextVar(
+    "vibecomfy_active_runtime_requirements", default=()
+)
 
 
 def default_install_root() -> Path:
@@ -462,6 +473,8 @@ def preflight_pip_requirements(packs: Sequence[CustomNodePack], *, runner: Runne
     packages = tuple(sorted({package for pack in packs for package in pack.pip_packages}))
     if not packages:
         return PipPreflightResult(ok=True)
+    if (requirement_error := _runtime_requirement_conflict(_ACTIVE_RUNTIME_REQUIREMENTS.get())) is not None:
+        return PipPreflightResult(ok=False, packages=packages, error=requirement_error)
     try:
         help_result = runner([sys.executable, "-m", "pip", "install", "--help"], check=True, capture_output=True, text=True)
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -472,16 +485,105 @@ def preflight_pip_requirements(packs: Sequence[CustomNodePack], *, runner: Runne
     with tempfile.TemporaryDirectory(prefix="vibecomfy-pip-preflight-") as tmp:
         report_path = Path(tmp) / "pip-report.json"
         try:
+            command = [sys.executable, "-m", "pip", "install", "--dry-run", "--report", str(report_path)]
+            active_constraint = _ACTIVE_PIP_CONSTRAINT.get()
+            if active_constraint is not None:
+                command.extend(["--constraint", str(active_constraint)])
             runner(
-                [sys.executable, "-m", "pip", "install", "--dry-run", "--report", str(report_path), *packages],
+                [*command, *packages],
                 check=True,
                 capture_output=True,
                 text=True,
             )
         except (OSError, subprocess.CalledProcessError) as exc:
             return PipPreflightResult(ok=False, packages=packages, error=_error_text(exc) or "pip dry-run preflight failed")
+        conflict = _pip_plan_conflict(report_path, _protected_runtime_packages())
+        if conflict is not None:
+            return PipPreflightResult(ok=False, packages=packages, error=conflict)
     return PipPreflightResult(ok=True, packages=packages)
+
+
+def _write_runtime_constraints(runtime_requirements: Sequence[str] = ()) -> Path:
+    fd, raw_path = tempfile.mkstemp(prefix="vibecomfy-runtime-constraints-", suffix=".txt")
+    os.close(fd)
+    path = Path(raw_path)
+    versions: dict[str, str] = _protected_runtime_packages()
+    for raw_requirement in runtime_requirements:
+        try:
+            requirement = Requirement(str(raw_requirement))
+        except InvalidRequirement:
+            continue
+        if requirement.marker is not None and not requirement.marker.evaluate():
+            continue
+        package = canonicalize_name(requirement.name)
+        try:
+            observed = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        # Preserve the authored range. Pin only when the installed version is
+        # compatible; incompatible installed state is reported by preflight.
+        if requirement.specifier.contains(observed, prereleases=True):
+            versions[package] = observed
+    path.write_text(
+        "\n".join(f"{package}=={version}" for package, version in sorted(versions.items())) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _runtime_requirement_conflict(requirements: Sequence[str]) -> str | None:
+    for raw_requirement in requirements:
+        try:
+            requirement = Requirement(str(raw_requirement))
+        except InvalidRequirement:
+            return f"invalid runtime requirement {raw_requirement!r}"
+        if requirement.marker is not None and not requirement.marker.evaluate():
+            continue
+        try:
+            observed = importlib.metadata.version(requirement.name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        if requirement.specifier and not requirement.specifier.contains(observed, prereleases=True):
+            return f"installed {canonicalize_name(requirement.name)} {observed} does not satisfy declared {requirement}"
+    return None
+
+
 def install_required_packs(
+    packs: Sequence[CustomNodePack],
+    *,
+    force: bool = False,
+    restore_entries: Sequence[LockEntry] | None = None,
+    install_refs_by_name: Mapping[str, PackRef | LockEntry | dict[str, Any] | str] | None = None,
+    install_root: Path = DEFAULT_INSTALL_ROOT,
+    lockfile_path: Path = Path("custom_nodes.lock"),
+    runner: Runner = subprocess.run,
+    cm_cli_resolver: Callable[[Path, Runner], list[str] | None] = _resolve_cm_cli,
+    runtime_requirements: Sequence[str] = (),
+) -> InstallBatchResult:
+    constraint_path = _write_runtime_constraints(runtime_requirements)
+    token = _ACTIVE_PIP_CONSTRAINT.set(constraint_path)
+    requirements_token = _ACTIVE_RUNTIME_REQUIREMENTS.set(tuple(runtime_requirements))
+    try:
+        return _install_required_packs_impl(
+            packs,
+            force=force,
+            restore_entries=restore_entries,
+            install_refs_by_name=install_refs_by_name,
+            install_root=install_root,
+            lockfile_path=lockfile_path,
+            runner=runner,
+            cm_cli_resolver=cm_cli_resolver,
+        )
+    finally:
+        _ACTIVE_PIP_CONSTRAINT.reset(token)
+        _ACTIVE_RUNTIME_REQUIREMENTS.reset(requirements_token)
+        try:
+            constraint_path.unlink()
+        except OSError:
+            pass
+
+
+def _install_required_packs_impl(
     packs: Sequence[CustomNodePack],
     *,
     force: bool = False,
@@ -559,8 +661,33 @@ def missing_packs_for_workflow(
 ) -> tuple[list[CustomNodePack], list[str]]:
     missing_classes = missing_class_types_for_workflow(workflow)
     packs = resolve_node_packs(missing_classes, lockfile_path=lockfile_path)
-    unresolved = unresolved_class_types(missing_classes, lockfile_path=lockfile_path)
-    return _merge_declared_requirement_packs(workflow, packs, lockfile_path=lockfile_path), unresolved
+    portable = _portable_requirement_packs(workflow)
+    all_packs = [*packs, *portable]
+    covered = set().union(*(pack.classes for pack in all_packs)) if all_packs else set()
+    unresolved = sorted(missing_classes - covered)
+    return _merge_declared_requirement_packs(workflow, all_packs, lockfile_path=lockfile_path), unresolved
+
+
+def _portable_requirement_packs(workflow: VibeWorkflow) -> list[CustomNodePack]:
+    """Build installable catalog entries from workflow-carried class evidence."""
+    requirements = getattr(workflow, "metadata", {}).get("requirements", {})
+    refs = requirements.get("custom_node_refs", ()) if isinstance(requirements, Mapping) else ()
+    result: list[CustomNodePack] = []
+    for ref in refs if isinstance(refs, list) else ():
+        if not isinstance(ref, Mapping):
+            continue
+        classes = ref.get("class_set", ref.get("classes", ()))
+        slug = ref.get("slug") or ref.get("name")
+        if not isinstance(slug, str) or not slug or not isinstance(classes, (list, tuple)) or not classes:
+            continue
+        result.append(CustomNodePack(
+            name=str(ref.get("name") or slug),
+            repo=str(ref.get("url") or ref.get("path") or slug),
+            classes=frozenset(str(item) for item in classes if isinstance(item, str) and item),
+            pip_packages=tuple(str(item) for item in (ref.get("pip_packages") or ()) if isinstance(item, str)),
+            class_schema_sha256=ref.get("class_schema_sha256") or ref.get("schema_hash"),
+        ))
+    return result
 
 
 def build_install_refs_by_name(
@@ -806,10 +933,106 @@ def _checkout_ref_and_verify(
     return None
 def _looks_like_commit(value: str | None) -> bool:
     return bool(value is not None and re.fullmatch(r"[0-9a-fA-F]{7,40}", value))
+def _protected_runtime_packages() -> dict[str, str]:
+    """Return installed foundational packages whose versions node pip may not change."""
+    names = {"torch"}
+    raw = os.environ.get("VIBECOMFY_PROTECTED_RUNTIME_PACKAGES", "")
+    names.update(item.strip().lower() for item in raw.split(",") if item.strip())
+    observed: dict[str, str] = {}
+    for package in sorted(names):
+        try:
+            observed[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+    return observed
+
+
+def _pip_plan_conflict(report_path: Path, protected: Mapping[str, str]) -> str | None:
+    """Reject a dry-run plan that would replace an installed protected package."""
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return "pip dry-run did not produce a readable resolution report"
+    if not isinstance(report, Mapping) or "install" not in report or not isinstance(report["install"], list):
+        return "pip dry-run produced a malformed resolution report"
+    installs = report["install"]
+    for item in installs:
+        if not isinstance(item, Mapping) or not isinstance(item.get("metadata"), Mapping):
+            return "pip dry-run produced a malformed install item"
+        metadata = item["metadata"]
+        if not isinstance(metadata.get("name"), str) or not isinstance(metadata.get("version"), str):
+            return "pip dry-run produced an install item without package name/version"
+        package = canonicalize_name(metadata["name"])
+        planned = metadata.get("version")
+        current = next((value for key, value in protected.items() if canonicalize_name(key) == package), None)
+        if current is not None:
+            try:
+                differs = Version(str(planned)) != Version(str(current))
+            except InvalidVersion:
+                differs = str(planned) != str(current)
+            if differs:
+                return f"custom-node pip resolution would change protected runtime package {package} from {current} to {planned}"
+    return None
+
+
 def _install_pack_pip_packages(name: str, pack: CustomNodePack | None, runner: Runner) -> str | None:
-    if pack is None or not pack.pip_packages: return None
-    try: runner([sys.executable, "-m", "pip", "install", *pack.pip_packages], check=True, capture_output=True, text=True)
-    except (OSError, subprocess.CalledProcessError) as exc: return _error_text(exc) or f"failed to install pip packages for {name}"
+    if pack is None or not pack.pip_packages:
+        return None
+    if (requirement_error := _runtime_requirement_conflict(_ACTIVE_RUNTIME_REQUIREMENTS.get())) is not None:
+        return requirement_error
+    protected = _protected_runtime_packages()
+    for raw_requirement in _ACTIVE_RUNTIME_REQUIREMENTS.get():
+        try:
+            requirement = Requirement(str(raw_requirement))
+            if requirement.marker is not None and not requirement.marker.evaluate():
+                continue
+            observed = importlib.metadata.version(requirement.name)
+            if not requirement.specifier or requirement.specifier.contains(observed, prereleases=True):
+                protected[canonicalize_name(requirement.name)] = observed
+        except (InvalidRequirement, importlib.metadata.PackageNotFoundError):
+            continue
+    active_constraint = _ACTIVE_PIP_CONSTRAINT.get()
+    owned_constraint = active_constraint is None
+    if owned_constraint:
+        active_constraint = _write_runtime_constraints()
+    def cleanup_constraint() -> None:
+        if owned_constraint and active_constraint is not None:
+            try:
+                active_constraint.unlink()
+            except OSError:
+                pass
+    with tempfile.TemporaryDirectory(prefix="vibecomfy-node-pip-") as tmp:
+        report_path = Path(tmp) / "pip-report.json"
+        try:
+            # Resolve with dependencies intact, but do not mutate. This catches
+            # transitive Torch churn before the real install transaction.
+            command = [sys.executable, "-m", "pip", "install", "--dry-run", "--report", str(report_path)]
+            if active_constraint is not None:
+                command.extend(["--constraint", str(active_constraint)])
+            runner(
+                [*command, *pack.pip_packages],
+                check=True, capture_output=True, text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            cleanup_constraint()
+            return _error_text(exc) or f"failed to preflight pip dependencies for {name}"
+        conflict = _pip_plan_conflict(report_path, protected)
+        if conflict is not None:
+            cleanup_constraint()
+            return conflict
+        try:
+            command = [sys.executable, "-m", "pip", "install"]
+            if active_constraint is not None:
+                command.extend(["--constraint", str(active_constraint)])
+            runner([*command, *pack.pip_packages], check=True, capture_output=True, text=True)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            cleanup_constraint()
+            return _error_text(exc) or f"failed to install pip packages for {name}"
+    cleanup_constraint()
+    after = _protected_runtime_packages()
+    for package, version in protected.items():
+        if after.get(package) != version:
+            return f"custom-node pip install changed protected runtime package {package} from {version} to {after.get(package)}"
     return None
 def _finalize_install(
     name: str,

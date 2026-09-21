@@ -2195,9 +2195,14 @@ def _decode_serialized_vibe(
         )
     except RuntimeDependencyError as exc:
         raise ValueError(str(exc)) from exc
+    # Structured custom-node refs are part of the serialized IR requirement,
+    # while metadata.requirements remains an accepted legacy source.  The
+    # VibeWorkflow constructor merges the latter without making metadata a
+    # second semantic authority.
     requirements = WorkflowRequirements(
         models=_vibe_string_list(requirements_raw.get("models"), "requirements.models"),
         custom_nodes=_vibe_string_list(requirements_raw.get("custom_nodes"), "requirements.custom_nodes"),
+        custom_node_refs=deepcopy(requirements_raw.get("custom_node_refs") or []),
         missing_models=_vibe_string_list(requirements_raw.get("missing_models"), "requirements.missing_models"),
         missing_nodes=_vibe_string_list(requirements_raw.get("missing_nodes"), "requirements.missing_nodes"),
         unsupported=_vibe_string_list(requirements_raw.get("unsupported"), "requirements.unsupported"),

@@ -48,6 +48,7 @@ from vibecomfy.workflow_bundle import (
 from .dependencies import RuntimeDependencyError
 
 from .attempt import build_attempt_bundle, build_shared_fields, write_attempt_json
+from .run_context import RunContext
 from .client import ComfyClient
 from .drift import enforce_strict_drift
 from .execution import (
@@ -876,7 +877,7 @@ async def _ensure_embedded_prerequisites(
     without making it an approval or queue authority.
     """
     if ensure_packs:
-        from vibecomfy.custom_node_refs import check_pack_pin_compatibility
+        from vibecomfy.custom_node_refs import check_pack_pin_compatibility, effective_lock_entries
         from vibecomfy.node_packs import install_required_packs, missing_packs_for_workflow
         from vibecomfy.node_packs import read_lockfile
 
@@ -888,7 +889,7 @@ async def _ensure_embedded_prerequisites(
             if configured_lockfile is None
             else resolve_lockfile_path(configured_lockfile)
         )
-        lockfile_entries = read_lockfile(lockfile_path)
+        lockfile_entries = effective_lock_entries(workflow, read_lockfile(lockfile_path))
         pin_issues = check_pack_pin_compatibility(workflow, lockfile_entries)
         pin_errors = [issue.message for issue in pin_issues if issue.severity == "error"]
         if pin_errors:
@@ -910,12 +911,29 @@ async def _ensure_embedded_prerequisites(
         except ValueError as exc:
             raise RuntimeError("ensure_packs: " + str(exc)) from exc
         if packs:
-            lock_entries = {entry.name: entry for entry in lockfile_entries}
+            from .dependencies import runtime_requirements_from_workflow
+            runtime_decl = runtime_requirements_from_workflow(workflow)
+            lock_entries = {
+                (entry.name, entry.slug): entry for entry in lockfile_entries
+            }
             batch = install_required_packs(
                 packs,
                 restore_entries=[
-                    entry for pack in packs if (entry := lock_entries.get(pack.name)) is not None
+                    entry
+                    for pack in packs
+                    if (entry := next(
+                        (
+                            candidate
+                            for (name, slug), candidate in lock_entries.items()
+                            if name == pack.name or slug == pack.name
+                        ),
+                        None,
+                    )) is not None
                 ],
+                runtime_requirements=(
+                    tuple(f"{name}{constraint}" for name, constraint in runtime_decl.packages)
+                    if runtime_decl is not None else ()
+                ),
             )
             if not batch.ok:
                 errors = [
@@ -1372,6 +1390,7 @@ class EmbeddedSession:
         parent_run_id: str | None = None,
         dependency_mode: str = "reuse",
         dependency_report: Mapping[str, Any] | None = None,
+        run_context: RunContext | None = None,
     ) -> RunResult:
         workflow = _require_runtime_boundary(record, bundle)
         if self._inflight_run is not None and not self._inflight_run.done():
@@ -1383,6 +1402,8 @@ class EmbeddedSession:
             kwargs: dict[str, Any] = {}
             if ensure_packs:
                 kwargs["ensure_packs"] = True
+            if run_context is not None:
+                kwargs["run_context"] = run_context
             if ensure_models:
                 kwargs["ensure_models"] = True
             if dependency_mode != "reuse":
@@ -1415,9 +1436,13 @@ class EmbeddedSession:
         ensure_models: bool = False,
         dependency_mode: str = "reuse",
         dependency_report: Mapping[str, Any] | None = None,
+        run_context: RunContext | None = None,
     ) -> RunResult:
         workflow = _require_runtime_boundary(record, bundle)
-        run_id, run_dir = _allocate_request_root("run", config=self.config)
+        run_id, run_dir = (
+            (run_context.run_id, run_context.run_dir) if run_context is not None
+            else _allocate_request_root("run", config=self.config)
+        )
         _assert_embedded_managed_interpreter(self.config)
         if dependency_mode == "sync" and self._comfy is not None:
             exc = RuntimeDependencyError(
@@ -3303,7 +3328,10 @@ def _run_metadata(
         external_log_locator=external_log_locator,
     )
     # Reuse attempt helper for shared fields so metadata.json agrees with attempt.json.
-    shared = build_shared_fields(bundle, record, config=config)
+    shared = build_shared_fields(
+        bundle, record, config=config, adapter_kind=runtime,
+        adapter_endpoint=adapter_endpoint, runtime_compatibility=dependency_report,
+    )
     media_verified = bool(
         isinstance(media_validation, Mapping)
         and media_validation.get("status") == "verified"

@@ -2162,6 +2162,12 @@ if os.environ.get("VIBECOMFY_HEADLESS") != "1":
         from .._server_compat import import_prompt_server
 
         _PromptServer = import_prompt_server()
+        # Offline/API bundle imports can resolve the PromptServer class before
+        # ComfyUI has constructed its process-global instance. Route
+        # registration must defer in that phase; never manufacture a dummy
+        # instance or let an AttributeError abort canonical bundle loading.
+        if getattr(_PromptServer, "instance", None) is None:
+            raise ImportError("ComfyUI PromptServer instance is not live yet")
 
         @register_http_route(
             _PromptServer.instance.routes, "POST", "/vibecomfy/roundtrip"

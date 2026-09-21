@@ -126,6 +126,35 @@ def test_runpod_config_kwargs_preserves_vibecomfy_disk_overrides(monkeypatch: py
     assert config_kwargs["container_disk_gb"] == 50
 
 
+def test_runpod_config_kwargs_forwards_allowed_cuda_versions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIBECOMFY_RUNPOD_ALLOWED_CUDA_VERSIONS", "13.0, 12.9,13.0")
+    assert runpod_runner._runpod_config_kwargs()["allowed_cuda_versions"] == ["13.0", "12.9"]
+
+
+@pytest.mark.parametrize("value", ["", " , ", "cuda13"])
+def test_runpod_config_kwargs_rejects_invalid_allowed_cuda_versions(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_RUNPOD_ALLOWED_CUDA_VERSIONS", value)
+    with pytest.raises(ValueError, match="must contain"):
+        runpod_runner._runpod_config_kwargs()
+
+
+def test_runpod_config_old_dependency_fails_clearly_when_cuda_filter_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_RUNPOD_ALLOWED_CUDA_VERSIONS", "13.0")
+
+    class OldConfig:
+        @classmethod
+        def from_env(cls, **kwargs):
+            raise TypeError("unexpected keyword argument 'allowed_cuda_versions'")
+
+    monkeypatch.setattr(runpod_runner, "RunPodConfig", OldConfig)
+    with pytest.raises(RuntimeError, match="does not support allowed CUDA"):
+        runpod_runner._build_runpod_config()
+
+
 def test_parse_tsv_returns_structured_rows(tmp_path: Path) -> None:
     results = tmp_path / "results.tsv"
     results.write_text("id\tstatus\tseconds\nred\tok\t3\nblue\tfail\t9\n", encoding="utf-8")

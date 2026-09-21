@@ -166,6 +166,15 @@ Managed sync uses an existing `runtime_root/.venv` or `runtime_root/venv` and
 the `.vibecomfy-managed` marker written by managed setup; it fails closed when
 that owned interpreter or marker is unavailable.
 
+Scoped synchronization may be requested with repeatable
+`--deps-sync-package NAME`; the result retains the full expected/actual checks
+and reports `partial`, selected repairs, and remaining mismatches. Unknown
+selectors fail before mutation. An intentional advisory experiment must
+provide both `--deps-deviation-scope` and `--deps-deviation-reason` (aliases
+`--dependency-deviation-*`); its attempt receipt records the decision while the
+runtime report remains `noncompliant` or `unverified`. This does not rewrite
+the workflow declaration or bypass missing-node/schema/backend failures.
+
 `requirements.runtime` is a typed declaration for the tested ComfyUI
 commit/version, Python version, package constraints, launch flags, model
 identities, and custom-node commits/versions. Legacy `metadata.python_env` and

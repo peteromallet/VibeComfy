@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+import copy
+from typing import Any, Mapping
 
 from vibecomfy.porting.emit.emit_agent_edit import emit_agent_edit_python
 from vibecomfy.porting.emit.emit_ready import (
@@ -91,6 +92,15 @@ def emit_canonical_python(
                 "unsupported",
             )
         }
+    # Structured node pins are authoritative on WorkflowRequirements.  Keep
+    # accepting metadata.requirements for legacy hand-authored workflows, but
+    # never let a stale caller-supplied READY_REQUIREMENTS override the IR.
+    ir_refs = getattr(workflow.requirements, "custom_node_refs", ()) or ()
+    if ir_refs:
+        requirements["custom_node_refs"] = copy.deepcopy(list(ir_refs))
+    metadata_requirements = metadata.get("requirements")
+    if not ir_refs and isinstance(metadata_requirements, Mapping) and "custom_node_refs" in metadata_requirements:
+        requirements["custom_node_refs"] = copy.deepcopy(metadata_requirements["custom_node_refs"])
     if registered_inputs is None:
         authored_inputs = getattr(workflow, "inputs", {})
         # Keep ``None`` distinct from an explicitly supplied empty retained

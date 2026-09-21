@@ -16,6 +16,7 @@ from vibecomfy.workflow import VibeWorkflow
 from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle, WorkflowBundleError
 
 from .attempt import build_attempt_bundle, write_attempt_json
+from .run_context import RunContext
 from .client import ComfyClient
 from .dependencies import RuntimeDependencyError
 from .execution import queue_server_prompt
@@ -67,13 +68,22 @@ def _dependency_check(
     from .dependencies import (
         RuntimeDependencyError,
         compare_runtime,
+        inspect_external_runtime,
         runtime_requirements_from_workflow,
         sync_runtime,
     )
 
     if dependency_mode not in {"reuse", "sync"}:
         raise RuntimeDependencyError("dependency mode must be reuse or sync")
+    configured_deviation = _normalize_dependency_deviation(
+        config.extra.get("dependency_deviation")
+    )
     requirements = runtime_requirements_from_workflow(workflow)
+    external_target = server_url is not None and not (
+        isinstance(target, Mapping) and target.get("managed") is True
+    )
+    if external_target and requirements is not None:
+        target = inspect_external_runtime(server_url)
     if dependency_report is not None:
         report = dict(dependency_report)
         report.setdefault("mode", dependency_mode)
@@ -86,8 +96,13 @@ def _dependency_check(
                 requirements,
                 target=target if target is not None else ({} if external_target else None),
                 runtime_root=None if external_target else config.runtime_root,
+                strict_external_launch_flags=bool(config.extra.get("strict_external_launch_flags")),
             )
-            for key in ("mode", "actions", "synced", "managed", "changes"):
+            for key in (
+                "mode", "actions", "synced", "managed", "changes",
+                "partial", "selected_packages", "remaining_mismatches",
+                "attempt_deviation",
+            ):
                 if key in report:
                     observed[key] = report[key]
             report = observed
@@ -98,12 +113,34 @@ def _dependency_check(
         report = compare_runtime(
             requirements,
             target=target if target is not None else ({} if external_target else None),
-            runtime_root=config.runtime_root,
+            runtime_root=None if external_target else config.runtime_root,
+            strict_external_launch_flags=bool(config.extra.get("strict_external_launch_flags")),
         )
     if requirements is not None:
         report = dict(report)
         report.setdefault("mode", dependency_mode)
         report.setdefault("changes", [])
+    deviation = configured_deviation
+    if deviation is not None:
+        report = dict(report)
+        report["attempt_deviation"] = deviation
+        report["compliance"] = "noncompliant" if report.get("status") != "matching" else "unverified"
+        report["execution_policy"] = "advisory_deviation"
+        # A deviation can authorize an experiment against a version/pin or an
+        # unknown remote observation.  It cannot turn an actually absent node
+        # pack into an executable one; compile/schema admission remains the
+        # authority for missing classes.
+        missing_nodes = [
+            item for item in report.get("checks", ())
+            if isinstance(item, Mapping)
+            and str(item.get("path", "")).startswith("custom_nodes.")
+            and item.get("status") == "missing"
+        ]
+        if missing_nodes:
+            report["deviation_rejected"] = "missing_custom_nodes"
+            deviation = None
+        else:
+            report["execution_permitted"] = True
     if dependency_mode == "sync" and requirements is not None:
         if external_target:
             raise RuntimeDependencyError(
@@ -118,7 +155,7 @@ def _dependency_check(
                 raise RuntimeDependencyError(
                     "--deps sync requires a synchronized dependency report or a managed target"
                 )
-            if report.get("status") not in {"matching", "unverified"}:
+            if report.get("status") not in {"matching", "unverified"} and configured_deviation is None:
                 exc = RuntimeDependencyError(
                     "runtime dependencies are not compatible with this target: "
                     + "; ".join(str(item) for item in report.get("mismatches", ()))
@@ -152,7 +189,7 @@ def _dependency_check(
                 raise
     if report.get("warnings"):
         logger.warning("%s", report["warnings"][0])
-    if not report.get("ok", True):
+    if not report.get("ok", True) and not report.get("execution_permitted", False):
         exc = RuntimeDependencyError(
             "runtime dependencies are not compatible with this target: "
             + "; ".join(str(item) for item in report.get("mismatches", ()))
@@ -160,6 +197,33 @@ def _dependency_check(
         setattr(exc, "dependency_report", report)
         raise exc
     return report
+
+
+def _normalize_dependency_deviation(value: Any) -> dict[str, Any] | None:
+    """Validate one attempt-scoped advisory deviation record.
+
+    This deliberately stays a record validator, not a second policy engine.
+    Canonical requirements are never edited and the compatibility result is
+    never changed to ``matching``.
+    """
+    from .dependencies import RuntimeDependencyError
+
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise RuntimeDependencyError("dependency_deviation must be an object")
+    scope = value.get("scope")
+    reason = value.get("reason")
+    if not isinstance(scope, str) or not scope.strip():
+        raise RuntimeDependencyError("dependency_deviation.scope must be a nonblank string")
+    if not isinstance(reason, str) or not reason.strip():
+        raise RuntimeDependencyError("dependency_deviation.reason must be a nonblank string")
+    return {
+        "scope": scope.strip(),
+        "reason": reason.strip(),
+        "policy": "advisory",
+        "authorized_for_attempt": True,
+    }
 
 
 def _allocate_run_dir(
@@ -380,6 +444,7 @@ async def run(
     dependency_mode: str = "reuse",
     runtime_target: Mapping[str, Any] | None = None,
     dependency_report: Mapping[str, Any] | None = None,
+    run_context: RunContext | None = None,
 ) -> RunResult:
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
@@ -391,7 +456,10 @@ async def run(
         bundle.require_canonical_authority("runtime execution")
     workflow = bundle.workflow
     resolved_config = config or SessionConfig.from_workflow_metadata(workflow)
-    run_id, run_dir = _allocate_run_dir("run", runtime_root=resolved_config.runtime_root)
+    run_id, run_dir = (
+        (run_context.run_id, run_context.run_dir) if run_context is not None
+        else _allocate_run_dir("run", runtime_root=resolved_config.runtime_root)
+    )
     # An explicit server owns its process and filesystem.  Do not hand callers
     # a local path that this adapter never created.
     log_path = run_dir / "comfy.log" if server_url is None else None
@@ -917,6 +985,7 @@ def run_sync(
     dependency_mode: str = "reuse",
     runtime_target: Mapping[str, Any] | None = None,
     dependency_report: Mapping[str, Any] | None = None,
+    run_context: RunContext | None = None,
 ) -> RunResult:
     kwargs = {
         "server_url": server_url,
@@ -937,6 +1006,8 @@ def run_sync(
         kwargs["runtime_target"] = runtime_target
     if dependency_report is not None:
         kwargs["dependency_report"] = dependency_report
+    if run_context is not None:
+        kwargs["run_context"] = run_context
     return asyncio.run(run(record, bundle, **kwargs))
 
 async def run_embedded(
@@ -952,6 +1023,7 @@ async def run_embedded(
     parent_run_id: str | None = None,
     dependency_mode: str = "reuse",
     dependency_report: Mapping[str, Any] | None = None,
+    run_context: RunContext | None = None,
 ) -> RunResult:
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
@@ -970,6 +1042,8 @@ async def run_embedded(
             kwargs["dependency_mode"] = dependency_mode
         if dependency_report is not None:
             kwargs["dependency_report"] = dependency_report
+        if run_context is not None:
+            kwargs["run_context"] = run_context
         return await session.run(record, bundle, **kwargs)
     finally:
         await session.stop()
@@ -1192,6 +1266,7 @@ def run_embedded_sync(
     parent_run_id: str | None = None,
     dependency_mode: str = "reuse",
     dependency_report: Mapping[str, Any] | None = None,
+    run_context: RunContext | None = None,
 ) -> RunResult:
     kwargs: dict[str, Any] = {
         "backend": backend,
@@ -1206,6 +1281,8 @@ def run_embedded_sync(
         kwargs["dependency_mode"] = dependency_mode
     if dependency_report is not None:
         kwargs["dependency_report"] = dependency_report
+    if run_context is not None:
+        kwargs["run_context"] = run_context
     return asyncio.run(run_embedded(record, bundle, **kwargs))
 
 

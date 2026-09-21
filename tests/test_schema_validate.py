@@ -109,6 +109,43 @@ def test_missing_required_input_emits_error() -> None:
     assert report.issues[0].detail == {"node_id": "1", "class_type": "PromptNode", "input": "text"}
 
 
+def test_h3_custom_keyframes_accepts_runtime_dynamic_sockets() -> None:
+    provider = FakeSchemaProvider(
+        {
+            "MiniMaxH3CustomKeyframes": _schema(
+                "MiniMaxH3CustomKeyframes",
+                {
+                    "conditioning": InputSpec("CONDITIONING", required=True),
+                    "vae": InputSpec("VAE", required=True),
+                    "latent": InputSpec("LATENT", required=True),
+                    "keyframe_state": InputSpec("STRING", required=True),
+                    "indexing": InputSpec("CHOICE"),
+                    "crop": InputSpec("CHOICE"),
+                },
+            )
+        }
+    )
+    issues = validate_api_against_schema(
+        {
+            "7": {
+                "class_type": "MiniMaxH3CustomKeyframes",
+                "inputs": {
+                    "conditioning": ["1", 0],
+                    "vae": ["2", 0],
+                    "latent": ["3", 0],
+                    "keyframe_state": '{"count":1,"positions":[124]}',
+                    "indexing": "1-based",
+                    "crop": "disabled",
+                    "keyframe_image_1": ["6", 0],
+                },
+            }
+        },
+        provider,
+    )
+
+    assert not [issue for issue in issues if issue.code == "unknown_input"]
+
+
 def test_unknown_input_emits_error() -> None:
     provider = FakeSchemaProvider({"PromptNode": _schema("PromptNode", {"text": InputSpec("STRING")})})
     report = _workflow(VibeNode("1", "PromptNode", inputs={"extra": "value"})).validate(schema_provider=provider)

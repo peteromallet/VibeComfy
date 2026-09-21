@@ -96,6 +96,9 @@ class FakeRunner:
             self.sha = self.checkout_head or call[4]
             return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
         if len(call) >= 4 and call[1:4] == ["-m", "pip", "install"]:
+            if "--dry-run" in call and "--report" in call:
+                Path(call[call.index("--report") + 1]).write_text('{"install": []}', encoding="utf-8")
+                return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
             if self.fail_pip:
                 raise subprocess.CalledProcessError(1, call, stderr="pip failed")
             return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
@@ -312,7 +315,7 @@ class PipPreflightRunner(FakeRunner):
             self.cwd_calls.append(cwd)
             if self.fail_dry_run:
                 raise subprocess.CalledProcessError(1, call, stderr="dry-run failed")
-            Path(call[6]).write_text("{}", encoding="utf-8")
+            Path(call[6]).write_text('{"install": []}', encoding="utf-8")
             return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
         return super().__call__(args, check=check, capture_output=capture_output, text=text, cwd=cwd)
 

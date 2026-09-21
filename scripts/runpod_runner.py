@@ -17,6 +17,7 @@ Credentials/defaults come from the *sibling* ``runpod-lifecycle`` repo's ``.env`
 - ``VIBECOMFY_RUNPOD_STORAGE_VOLUMES``  CSV of extra volumes tried after the primary
                                   (fan across datacenters — a single volume pins one DC).
 - ``VIBECOMFY_RUNPOD_DISK_SIZE_GB`` / ``VIBECOMFY_RUNPOD_CONTAINER_DISK_GB``  pod/container disk.
+- ``VIBECOMFY_RUNPOD_ALLOWED_CUDA_VERSIONS``  CSV of allowed host CUDA versions (e.g. ``13.0``).
 
 v0.3.0 note: ``ship_and_run_detached`` no longer accepts ``guard_factory``,
 ``poll_command_template``, ``poll_exit_marker``, or ``artifact_paths``; this
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import stat
 import sys
@@ -41,6 +43,7 @@ REMOTE_ROOT = "/workspace/vibecomfy"
 MiB = 1024 * 1024
 VIBECOMFY_RUNPOD_DISK_SIZE_ENV = "VIBECOMFY_RUNPOD_DISK_SIZE_GB"
 VIBECOMFY_RUNPOD_CONTAINER_DISK_ENV = "VIBECOMFY_RUNPOD_CONTAINER_DISK_GB"
+VIBECOMFY_RUNPOD_ALLOWED_CUDA_ENV = "VIBECOMFY_RUNPOD_ALLOWED_CUDA_VERSIONS"
 
 ARTIFACT_RUNS_ROOT = ROOT / "out" / "runpod_artifacts"
 
@@ -283,11 +286,34 @@ def _runpod_config_kwargs() -> dict[str, Any]:
         ),
         "ram_tiers": (32, 16),
     }
+    raw_cuda = os.getenv(VIBECOMFY_RUNPOD_ALLOWED_CUDA_ENV)
+    if raw_cuda is not None:
+        cuda_versions = [part.strip() for part in raw_cuda.split(",") if part.strip()]
+        if not cuda_versions or any(not re.fullmatch(r"\d+\.\d+", version) for version in cuda_versions):
+            raise ValueError(
+                f"{VIBECOMFY_RUNPOD_ALLOWED_CUDA_ENV} must contain non-empty CUDA versions like '13.0'"
+            )
+        config_kwargs["allowed_cuda_versions"] = list(dict.fromkeys(cuda_versions))
     if os.getenv(VIBECOMFY_RUNPOD_CONTAINER_DISK_ENV):
         config_kwargs["container_disk_gb"] = int(os.environ[VIBECOMFY_RUNPOD_CONTAINER_DISK_ENV])
     if os.getenv(VIBECOMFY_RUNPOD_DISK_SIZE_ENV):
         config_kwargs["disk_size_gb"] = int(os.environ[VIBECOMFY_RUNPOD_DISK_SIZE_ENV])
     return config_kwargs
+
+
+def _build_runpod_config() -> Any:
+    """Build lifecycle config, failing clearly if an old package cannot filter CUDA."""
+    kwargs = _runpod_config_kwargs()
+    try:
+        return RunPodConfig.from_env(**kwargs)
+    except TypeError as exc:
+        if "allowed_cuda_versions" in kwargs:
+            raise RuntimeError(
+                "Installed runpod-lifecycle does not support allowed CUDA host filters; "
+                "upgrade runpod-lifecycle before launching with "
+                f"{VIBECOMFY_RUNPOD_ALLOWED_CUDA_ENV}."
+            ) from exc
+        raise
 
 
 def _bootstrap_lifecycle() -> None:
@@ -408,7 +434,7 @@ async def run_pod(
     install_signal_handlers(asyncio.get_running_loop())
 
     _bridge_all_envs()
-    config = RunPodConfig.from_env(**_runpod_config_kwargs())
+    config = _build_runpod_config()
 
     # guard_factory resolved at CALL SITE (runtime lookup of module-level
     # ``PodGuard``) so monkeypatching in tests works.
@@ -468,7 +494,7 @@ async def run_pod_detached(
     install_signal_handlers(asyncio.get_running_loop())
 
     _bridge_all_envs()
-    config = RunPodConfig.from_env(**_runpod_config_kwargs())
+    config = _build_runpod_config()
     staging_root = _stage_lifecycle_local_root(exclude)
     try:
         artifact_root = _allocate_artifact_root()

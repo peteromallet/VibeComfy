@@ -279,7 +279,13 @@ def _resolve_prompt_server_instance() -> Any:
 
     global PromptServer
     PromptServer = import_prompt_server()
-    return PromptServer.instance
+    # The VibeComfy CLI imports the custom-node package while building its
+    # command registry, before a ComfyUI server has been constructed.  Recent
+    # ComfyUI exposes the PromptServer class at import time but does not create
+    # the process-global ``instance`` until server startup.  Treat that as the
+    # expected offline/import-only phase; route registration will run again from
+    # the live custom-node import once the server owns an instance.
+    return getattr(PromptServer, "instance", None)
 
 
 def _mark_route_failed(
@@ -409,6 +415,11 @@ def _ensure_routes_registered() -> None:
             _route_state = _ROUTES_FAILED
             _route_condition.notify_all()
         raise
+    if instance is None:
+        _LOGGER.debug(
+            "ComfyUI PromptServer has no live instance yet; deferring VibeComfy route registration."
+        )
+        return
     owner = _route_registration_owner(instance)
     from ._server_compat import is_official_import_only_stub
 

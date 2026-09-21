@@ -118,11 +118,10 @@ def build_attempt_bundle(
         if isinstance(raw, str) and raw:
             comfy_commit = raw
 
-    # --- drift block (collected from live filesystem / git state) ----------
-    drift: dict[str, Any] = _collect_drift_for_bundle(workflow)
     # --- runtime dependency declaration and target comparison ---------------
     from vibecomfy.runtime.dependencies import (
         compare_runtime,
+        inspect_external_runtime,
         runtime_requirements_from_workflow,
     )
     runtime_requirements = runtime_requirements_from_workflow(workflow)
@@ -131,9 +130,22 @@ def build_attempt_bundle(
         if runtime_compatibility is not None
         else compare_runtime(
             runtime_requirements,
-            runtime_root=getattr(config, "runtime_root", None),
+            target=inspect_external_runtime(adapter_endpoint)
+            if adapter_kind == "external" and adapter_endpoint else None,
+            runtime_root=None if adapter_kind == "external" else getattr(config, "runtime_root", None),
         )
     )
+    # A remote receipt must not embed a second, contradictory comparison
+    # against the CLI's installed packages/git checkout in its drift block.
+    if adapter_kind == "external":
+        drift: dict[str, Any] = {
+            "scope": "external_server", "status": "unverified",
+            "pinned": {"custom_node_packs": list(workflow.requirements.custom_nodes)},
+            "actual": {}, "mismatches": [], "runtime": runtime_report,
+        }
+        comfy_commit = runtime_report.get("actual", {}).get("comfy_commit")
+    else:
+        drift = _collect_drift_for_bundle(workflow)
 
     result = {
         "adapter": {
@@ -159,6 +171,12 @@ def build_attempt_bundle(
         result["runtime_compatibility"] = runtime_report
     if runtime_evidence is not None:
         result["runtime_evidence"] = dict(runtime_evidence)
+    if config is not None:
+        extra = getattr(config, "extra", {})
+        if isinstance(extra, Mapping) and isinstance(extra.get("dependency_deviation"), Mapping):
+            # This is deliberately attempt evidence only.  The canonical
+            # requirements and the compatibility report remain unchanged.
+            result["dependency_deviation"] = dict(extra["dependency_deviation"])
     return result
 
 
@@ -346,13 +364,20 @@ def build_shared_fields(
     record: ApprovedProjectionRecord,
     *,
     config: Any = None,
+    adapter_kind: str | None = None,
+    adapter_endpoint: str | None = None,
+    runtime_compatibility: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Extract the fields shared between *attempt.json* and *metadata.json*.
 
     This is a lightweight subset so ``_run_metadata`` can reuse the same
     derivation without duplicating logic.
     """
-    evidence = build_attempt_bundle(bundle, record, backend="api", config=config)
+    evidence = build_attempt_bundle(
+        bundle, record, backend="api", config=config,
+        adapter_kind=adapter_kind, adapter_endpoint=adapter_endpoint,
+        runtime_compatibility=runtime_compatibility,
+    )
     return {
         "compiled_prompt": evidence["compiled_prompt"],
         "id_map": evidence["id_map"],

@@ -7,11 +7,13 @@ import shlex
 import sys
 import time
 import uuid
+from contextlib import redirect_stderr
 from pathlib import Path
 
 from vibecomfy.cli_loader import load_bundle
 from vibecomfy.workflow_bundle import WorkflowAuthorityError, WorkflowBundleError
-from vibecomfy.runtime.run import run_embedded_sync, run_sync
+from vibecomfy.runtime.run import _allocate_run_dir, run_embedded_sync, run_sync
+from vibecomfy.runtime.run_context import RunContext
 from vibecomfy.runtime.session import SessionConfig, active_session_metadata, find_active_session
 from vibecomfy.runtime.session_binding import load_binding
 from vibecomfy.runtime.prepared import PreparationError, prepare_workflow
@@ -64,6 +66,73 @@ def _override_unwired_message(workflow_id: str, flag: str, override: str) -> str
     )
 
 
+def _attempt_dependency_deviation(args: argparse.Namespace) -> dict[str, object] | None:
+    """Validate the explicit, per-attempt advisory deviation controls."""
+    scope = getattr(args, "deps_deviation_scope", None)
+    reason = getattr(args, "deps_deviation_reason", None)
+    if scope is None and reason is None:
+        return None
+    if not isinstance(scope, str) or not scope.strip() or not isinstance(reason, str) or not reason.strip():
+        raise ValueError(
+            "--deps-deviation-scope and --deps-deviation-reason must be supplied together"
+        )
+    return {
+        "scope": scope.strip(),
+        "reason": reason.strip(),
+        "policy": "advisory",
+        "authorized_for_attempt": True,
+    }
+
+
+def _selected_runtime_packages(
+    runtime_requirements: object,
+    selected: list[str] | None,
+) -> list[str] | None:
+    """Keep custom-node selectors out of the runtime pip selector."""
+    if selected is None:
+        return None
+    declared = {
+        str(name).casefold().replace("_", "-")
+        for name, _constraint in getattr(runtime_requirements, "packages", ())
+    }
+    return [
+        name for name in selected
+        if str(name).casefold().replace("_", "-") in declared
+    ]
+
+
+def _validate_sync_selection(runtime_requirements: object, workflow: object, selected: list[str] | None) -> None:
+    if selected is None:
+        return
+    runtime_names = {
+        str(name).casefold().replace("_", "-")
+        for name, _constraint in getattr(runtime_requirements, "packages", ())
+    }
+    custom_names = {
+        str(name).casefold().replace("_", "-")
+        for name in getattr(getattr(workflow, "requirements", None), "custom_nodes", ())
+    }
+    custom_names.update(
+        str(item.get("name", item.get("slug", ""))).casefold().replace("_", "-")
+        for item in getattr(getattr(workflow, "requirements", None), "custom_node_refs", ())
+        if isinstance(item, dict) and str(item.get("name", item.get("slug", ""))).strip()
+    )
+    runtime_decl = getattr(getattr(workflow, "requirements", None), "runtime", None)
+    custom_names.update(
+        str(item.get("name", item.get("slug", ""))).casefold().replace("_", "-")
+        for item in getattr(runtime_decl, "custom_nodes", ())
+        if isinstance(item, dict) and str(item.get("name", item.get("slug", ""))).strip()
+    )
+    known = runtime_names | custom_names
+    unknown = sorted({str(item).casefold().replace("_", "-") for item in selected} - known)
+    if unknown:
+        raise ValueError(
+            "unknown dependency selected for synchronization: "
+            + ", ".join(unknown)
+            + "; choose from declared runtime packages or custom-node packs"
+        )
+
+
 def _canonical_source_path(reference: str | Path, workflow: object) -> Path | None:
     """Return the authored Python source eligible for local reconciliation."""
     candidate = Path(reference)
@@ -103,12 +172,18 @@ def _persist_cli_dependency_failure(
     runtime_root: str | Path | None,
     phase: str,
     error: BaseException,
+    attempt: RunContext | None = None,
 ) -> Path | None:
     """Persist a pre-queue CLI dependency failure before a run record exists."""
     try:
         root = Path(runtime_root).expanduser() if runtime_root is not None else Path.cwd()
-        run_id = f"dependency-{int(time.time())}-{uuid.uuid4().hex[:8]}"
-        run_dir = root / "out" / "dependency-failures" / run_id
+        if attempt is not None:
+            attempt.phase = phase
+            attempt.error = error
+            run_id, run_dir = attempt.run_id, attempt.run_dir
+        else:
+            run_id = f"dependency-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+            run_dir = root / "out" / "dependency-failures" / run_id
         report = dict(runtime_report)
         report.setdefault("changes", [])
         report["error"] = str(error)
@@ -130,12 +205,73 @@ def _persist_cli_dependency_failure(
                 "path": None,
             },
         }
+        if attempt is not None:
+            initial = json.loads(attempt.receipt_path.read_text(encoding="utf-8"))
+            initial.update(payload)
+            return atomic_write_json(attempt.receipt_path, initial)
         return atomic_write_json(run_dir / "receipt.json", payload)
     except (OSError, TypeError, ValueError):
         return None
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    # This must precede schema discovery, path resolution, and workflow imports.
+    try:
+        run_id, run_dir = _allocate_run_dir("run", runtime_root=getattr(args, "runtime_root", None))
+        attempt = RunContext(run_id, run_dir.resolve())
+        attempt.begin(str(args.path))
+    except OSError as exc:
+        # An unwritable receipt destination cannot provide a durable receipt.
+        print(f"run failed: cannot allocate attempt receipt: {exc}", file=sys.stderr)
+        return 1
+
+    class ErrorCapture:
+        def __init__(self):
+            self.stream = sys.stderr
+            self.tail = ""
+
+        def write(self, value):
+            self.tail = (self.tail + value)[-16384:]
+            return self.stream.write(value)
+
+        def flush(self):
+            self.stream.flush()
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+    errors = ErrorCapture()
+    try:
+        with redirect_stderr(errors):
+            result = _cmd_run_attempt(args, attempt)
+    except (Exception, KeyboardInterrupt, SystemExit) as exc:
+        attempt.error = exc
+        result = 1
+    if result == 0:
+        return result
+    error = attempt.error or RuntimeError(errors.tail.strip() or f"run failed during {attempt.phase}")
+    receipt = attempt.fail(error)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "status": receipt.get("completion_status") or "failed",
+            "run_id": attempt.run_id,
+            "phase": receipt.get("phase") or (receipt.get("terminal") or {}).get("phase"),
+            "error": str(error),
+            "diagnostics": receipt.get("diagnostics", list(getattr(error, "diagnostics", []) or [])),
+            "queue_status": receipt.get("queue_status", "not_attempted"),
+            "prompt_id": receipt.get("prompt_id") or getattr(error, "prompt_id", None),
+            "receipt_path": str(attempt.receipt_path),
+            "output_verification": receipt.get("output_verification", getattr(error, "output_verification", None)),
+            "delivery_state": receipt.get("delivery_state", getattr(error, "delivery_state", None)),
+        }, indent=2, sort_keys=True))
+    else:
+        if not errors.tail:
+            print(f"run failed: {error}", file=sys.stderr)
+        print(f"receipt_path: {attempt.receipt_path}", file=sys.stderr)
+    return result
+
+
+def _cmd_run_attempt(args: argparse.Namespace, attempt: RunContext) -> int:
     try:
         ensure_packs = bool(getattr(args, "ensure_packs", False))
         session_id = getattr(args, "session", None)
@@ -144,6 +280,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
         runtime = getattr(args, "runtime", "auto")
         server_url = getattr(args, "server_url", None)
         dependency_mode = getattr(args, "deps", "reuse")
+        try:
+            dependency_deviation = _attempt_dependency_deviation(args)
+        except ValueError as exc:
+            attempt.error = exc
+            print(f"run failed: {exc}", file=sys.stderr)
+            return 2
+        if dependency_deviation is not None and dependency_mode != "reuse":
+            # A sync attempt may record a deviation in its receipt, but the
+            # selector is an execution-policy override for the observed
+            # post-sync target, not permission to mutate a different target.
+            # Keep the control explicit and let the final admission check use
+            # the same advisory surface for both modes.
+            pass
         session_url = server_url
         session_metadata = None
         preparation = None
@@ -220,8 +369,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
         # unresolved at the final compile gate.  Use the effective URL so an
         # already-running managed session gets the same target authority as
         # the runtime queue.
+        attempt.phase = "schema"
         schema_provider = get_schema_provider("auto", server_url=session_url)
         try:
+            attempt.phase = "workflow_load"
             bundle = load_bundle(
                 args.path,
                 schema_provider=schema_provider,
@@ -231,29 +382,46 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 bundle.require_canonical_authority("workflow execution")
             workflow = bundle.workflow
         except WorkflowAuthorityError as exc:
+            attempt.error = exc
             print(f"run failed: {exc}", file=sys.stderr)
             return 1
         except SyntaxError as exc:
+            attempt.error = exc
             _print_source_migration_failure(args.path, f"SyntaxError: {exc}")
             return 1
         except Exception as exc:
+            attempt.error = exc
             _print_source_migration_failure(args.path, str(exc))
             return 1
         from vibecomfy.runtime.dependencies import (
             RuntimeDependencyError,
             compare_runtime,
+            inspect_external_runtime,
             inspect_runtime_target,
             runtime_requirements_from_workflow,
             sync_runtime,
         )
+        attempt.phase = "dependencies"
         runtime_requirements = runtime_requirements_from_workflow(workflow)
+        try:
+            _validate_sync_selection(
+                runtime_requirements,
+                workflow,
+                getattr(args, "deps_sync_package", None),
+            )
+        except ValueError as exc:
+            attempt.error = exc
+            print(f"run failed: {exc}", file=sys.stderr)
+            return 2
         runtime_dependency_report = None
         if runtime_requirements is not None:
             if server_url is not None:
                 # An explicit server owns its interpreter and filesystem. A
                 # local process observation must never masquerade as its facts.
                 runtime_dependency_report = compare_runtime(
-                    runtime_requirements, target={}, runtime_root=None
+                    runtime_requirements,
+                    target=inspect_external_runtime(server_url),
+                    strict_external_launch_flags=bool(getattr(args, "strict_external_launch_flags", False)),
                 )
             elif session_url is not None:
                 session_config = (session_metadata or {}).get("config", {})
@@ -280,6 +448,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 )
             runtime_dependency_report["mode"] = dependency_mode
             runtime_dependency_report.setdefault("changes", [])
+            if dependency_deviation is not None:
+                runtime_dependency_report["attempt_deviation"] = dict(dependency_deviation)
 
         if (
             dependency_mode == "sync"
@@ -319,6 +489,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
             if not offline_report.get("ok") or offline_report.get("status") != "matching":
                 receipt = _persist_cli_dependency_failure(
+                    attempt=attempt,
                     workflow=workflow,
                     runtime_requirements=runtime_requirements,
                     runtime_report={**offline_report, "mode": "sync"},
@@ -349,9 +520,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     runtime_root=runtime_root or Path.cwd(),
                     offline=os.environ.get("VIBECOMFY_OFFLINE") == "1",
                     launch_flags=list(runtime_requirements.launch_flags),
+                    sync_packages=_selected_runtime_packages(
+                        runtime_requirements,
+                        getattr(args, "deps_sync_package", None),
+                    ),
                 )
+                if dependency_deviation is not None:
+                    runtime_dependency_report["attempt_deviation"] = dict(dependency_deviation)
             except RuntimeDependencyError as exc:
                 receipt = _persist_cli_dependency_failure(
+                    attempt=attempt,
                     workflow=workflow,
                     runtime_requirements=runtime_requirements,
                     runtime_report=dict(getattr(exc, "dependency_report", None) or runtime_dependency_report or {}),
@@ -365,6 +543,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 return 1
         elif dependency_mode == "sync" and server_url is not None:
             receipt = _persist_cli_dependency_failure(
+                attempt=attempt,
                 workflow=workflow,
                 runtime_requirements=runtime_requirements,
                 runtime_report=dict(runtime_dependency_report or {}),
@@ -419,14 +598,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     runtime_target=remote_target,
                     offline=os.environ.get("VIBECOMFY_OFFLINE") == "1",
                     remote_adapter=bound_lifecycle_adapter,
+                    sync_packages=getattr(args, "deps_sync_package", None),
                 )
             except PreparationError as exc:
+                attempt.error = exc
                 print(f"run failed: {exc}", file=sys.stderr)
                 return 1
         if local_prepare:
             try:
                 reconciliation = reconcile_ready_template_file(local_source)
             except OSError as exc:
+                attempt.error = exc
                 print(f"run failed: dependency reconciliation could not read {local_source}: {exc}", file=sys.stderr)
                 return 1
             dynamic_diagnostics = [
@@ -438,6 +620,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             if dynamic_diagnostics:
                 blockers.extend(dynamic_diagnostics)
             if blockers:
+                attempt.diagnostics = blockers
                 _print_dependency_blockers(blockers)
                 return 1
             if reconciliation.get("changed"):
@@ -451,6 +634,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
                         bundle.require_canonical_authority("workflow execution")
                     workflow = bundle.workflow
                 except Exception as exc:
+                    attempt.error = exc
+                    attempt.phase = "workflow_load"
                     _print_source_migration_failure(str(local_source), str(exc))
                     return 1
             try:
@@ -464,12 +649,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     download_workers=getattr(args, "download_workers", None),
                     quiet=bool(getattr(args, "json", False)),
                     runtime_dependency_report=runtime_dependency_report,
+                    sync_packages=getattr(args, "deps_sync_package", None),
                 )
             except PreparationError as exc:
+                attempt.error = exc
                 print(f"run failed: {exc}", file=sys.stderr)
                 return 1
         runtime_requirements = runtime_requirements_from_workflow(workflow)
 
+        attempt.phase = "mapping"
         bundle_unresolved = tuple(getattr(bundle, "unresolved", ()) or ())
         unresolved_non_companion = [
             item for item in bundle_unresolved if str(item.get("kind", "")) != "companion"
@@ -484,6 +672,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 + detail
             )
             receipt = _persist_cli_dependency_failure(
+                attempt=attempt,
                 workflow=workflow,
                 runtime_requirements=runtime_requirements,
                 runtime_report=dict(runtime_dependency_report or {}),
@@ -553,6 +742,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 "workflow remains an unresolved draft after live reconciliation: " + detail
             )
             receipt = _persist_cli_dependency_failure(
+                attempt=attempt,
                 workflow=workflow,
                 runtime_requirements=runtime_requirements,
                 runtime_report=dict(runtime_dependency_report or {}),
@@ -565,6 +755,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 print(f"dependency_receipt: {receipt}", file=sys.stderr)
             return 1
 
+        attempt.phase = "inputs"
         run_inputs: dict[str, object] = {}
         if args.prompt is not None:
             if workflow.inputs.get("prompt") is None:
@@ -587,17 +778,22 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 if preparation is not None and runtime_root is not None
                 else None
             )
+            attempt.phase = "compile"
             record = bundle.compile(
                 run_inputs=run_inputs,
                 schema_provider=schema_provider,
                 models_root=prepared_models_root,
             )
         except Exception as exc:
+            attempt.error = exc
             print(f"run failed: {exc}", file=sys.stderr)
             return 1
         config_extra = {
             "quiet_schema_degradation": bool(getattr(args, "quiet_schema_degradation", False)),
+            "strict_external_launch_flags": bool(getattr(args, "strict_external_launch_flags", False)),
         }
+        if dependency_deviation is not None:
+            config_extra["dependency_deviation"] = dict(dependency_deviation)
         external_log_locator = getattr(args, "external_log_locator", None)
         if external_log_locator is not None:
             config_extra["external_log_locator"] = external_log_locator
@@ -649,8 +845,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 managed_runtime_target["managed"] = True
 
         def execute_once():
+            attempt.phase = "runtime"
             if runtime == "embedded" or (runtime == "auto" and session_url is None):
                 kwargs: dict[str, object] = {
+                    "run_context": attempt,
                     "backend": getattr(args, "backend", "api"),
                     "ensure_packs": ensure_packs and preparation is None,
                     "ensure_models": bool(getattr(args, "ensure_models", False)) and preparation is None,
@@ -662,6 +860,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     kwargs["dependency_report"] = runtime_dependency_report
                 return run_embedded_sync(record, bundle, **kwargs)
             kwargs = {
+                "run_context": attempt,
                 "server_url": session_url,
                 "backend": getattr(args, "backend", "api"),
                 "schema_provider": schema_provider if session_url is not None else None,
@@ -699,6 +898,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         if getattr(args, "json", False):
             payload = {
                 "run_id": result.run_id,
+                "receipt_path": str(attempt.receipt_path),
                 "prompt_id": result.prompt_id,
                 "queue_status": "accepted" if result.prompt_id else "unknown",
                 "metadata_path": result.metadata_path,
@@ -747,21 +947,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print("\n".join(lines))
         return 0
     except (OSError, RuntimeError, ValueError) as exc:
+        attempt.error = exc
         completion_status = str(getattr(exc, "completion_status", ""))
         if not completion_status and getattr(exc, "output_verification", None) is not None:
             completion_status = "Failed — final output rejected"
-        if getattr(args, "json", False):
-            payload = {
-                "status": completion_status or "Failed",
-                "error": str(exc),
-                "prompt_id": getattr(exc, "prompt_id", None),
-                "receipt_path": getattr(exc, "receipt_path", None),
-                "output_verification": getattr(exc, "output_verification", None),
-                "delivery_state": getattr(exc, "delivery_state", None),
-                "diagnostics": list(getattr(exc, "diagnostics", []) or []),
-            }
-            print(json.dumps(payload, indent=2, sort_keys=True))
-            return 1
         if completion_status:
             print(f"status: {completion_status}", file=sys.stderr)
         print(f"run failed: {exc}", file=sys.stderr)
@@ -799,10 +988,28 @@ def register(subparsers) -> None:
     run.add_argument("--runtime", choices=["auto", "embedded", "server"], default="auto")
     run.add_argument("--server-url")
     run.add_argument(
+        "--strict-external-launch-flags", action="store_true",
+        help="Reject an external server whose observed argv lacks declared launch flags.",
+    )
+    run.add_argument(
         "--deps",
         choices=["reuse", "sync"],
         default="reuse",
         help="Reuse the declared runtime target or explicitly synchronize a managed target.",
+    )
+    run.add_argument(
+        "--deps-sync-package", action="append", default=None, metavar="NAME",
+        help="With --deps sync, align only this declared package (repeatable); report remaining drift.",
+    )
+    run.add_argument(
+        "--deps-deviation-scope", "--dependency-deviation-scope",
+        dest="deps_deviation_scope",
+        help="Explicit advisory experiment scope for this attempt when runtime evidence is noncompliant.",
+    )
+    run.add_argument(
+        "--deps-deviation-reason", "--dependency-deviation-reason",
+        dest="deps_deviation_reason",
+        help="Reason recorded with an explicit per-attempt dependency deviation.",
     )
     run.add_argument(
         "--external-log-locator",

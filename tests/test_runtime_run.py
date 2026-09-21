@@ -417,7 +417,8 @@ def test_run_starts_server_before_building(monkeypatch: pytest.MonkeyPatch, tmp_
     assert (tmp_path / "out").exists()
 
 
-def test_run_embedded_starts_before_building(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("preallocated", [False, True])
+def test_run_embedded_starts_before_building(tmp_path, monkeypatch: pytest.MonkeyPatch, preallocated) -> None:
     class FakeComfy:
         async def __aenter__(self):
             return self
@@ -432,12 +433,20 @@ def test_run_embedded_starts_before_building(tmp_path, monkeypatch: pytest.Monke
     monkeypatch.setitem(sys.modules, "comfy.client.embedded_comfy_client", embedded)
     monkeypatch.chdir(tmp_path)
 
+    kwargs = {}
+    if preallocated:
+        from vibecomfy.runtime.run_context import RunContext
+        context = RunContext(*runtime_run_module._allocate_run_dir("run", runtime_root=tmp_path))
+        context.begin("fixture")
+        kwargs["run_context"] = context
+        monkeypatch.setattr(session_module, "_allocate_request_root", lambda *a, **kw: pytest.fail("duplicate allocation"))
     with pytest.raises(ValueError, match="approved API projection"):
-        asyncio.run(runtime_run_module.run_embedded(*_approved(_workflow()), backend="missing"))
+        runtime_run_module.run_embedded_sync(*_approved(_workflow()), backend="missing", **kwargs)
 
     # Rework-1 publishes the record-bearing prepared attempt before schema
     # preparation, so the run root is durable even when preparation rejects.
     assert (tmp_path / "out/runs").exists()
+    assert len(list((tmp_path / "out/runs").iterdir())) == 1
 
 
 def test_run_validates_before_queueing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -873,8 +882,9 @@ def test_run_managed_server_uses_workflow_session_config(
     assert config.disable_smart_memory is True
 
 
+@pytest.mark.parametrize("preallocated", [False, True])
 def test_run_external_server_does_not_apply_workflow_session_config(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path, preallocated
 ) -> None:
     captured_configs = []
     workflow = _workflow()
@@ -901,7 +911,18 @@ def test_run_external_server_does_not_apply_workflow_session_config(
     monkeypatch.setattr(session_module, "ComfyClient", FakeClient)
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
 
-    result = asyncio.run(runtime_run_module.run(*_approved(workflow), server_url="http://external.test"))
+    kwargs = {}
+    if preallocated:
+        from vibecomfy.runtime.run_context import RunContext
+        context = RunContext(*runtime_run_module._allocate_run_dir("run", runtime_root=tmp_path))
+        context.begin("fixture")
+        kwargs["run_context"] = context
+        monkeypatch.setattr(runtime_run_module, "_allocate_run_dir", lambda *a, **kw: pytest.fail("duplicate allocation"))
+    result = runtime_run_module.run_sync(*_approved(workflow), server_url="http://external.test", **kwargs)
+    assert len(list((tmp_path / "out/runs").iterdir())) == 1
+    if preallocated:
+        assert result.run_id == context.run_id
+        assert Path(result.metadata_path).parent == context.run_dir
 
     assert result.prompt_id == "prompt-external"
     assert result.outputs == ["external.mp4"]
@@ -950,6 +971,52 @@ def test_run_external_server_does_not_apply_workflow_session_config(
     assert completion["log_path"] is None
     assert completion["log_provenance"] == result.log_provenance
     assert captured_configs == [None]
+
+
+def test_external_success_keeps_server_facts_in_attempt_and_metadata(tmp_path, monkeypatch):
+    from vibecomfy.contracts.runtime import RuntimeRequirements
+    from vibecomfy.runtime import attempt as attempt_module
+    from vibecomfy.runtime import dependencies
+    from tests.test_external_runtime_evidence import ARGV, REQUIREMENTS, SYSTEM
+    import io
+
+    workflow = _workflow()
+    workflow.requirements.runtime = RuntimeRequirements.from_dict(REQUIREMENTS)
+    record, bundle = _approved(workflow)
+
+    @asynccontextmanager
+    async def fake_server(**kwargs):
+        yield "http://external.test"
+
+    class FakeClient:
+        def __init__(self, url):
+            pass
+
+        async def _post_prompt(self, prompt):
+            return {"prompt_id": "external-success"}
+
+        async def history(self, prompt_id):
+            return _successful_history(prompt_id, {"9": {"filename": "external.mp4"}})
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(dependencies.urllib.request, "urlopen", lambda *a, **kw: io.StringIO(json.dumps({"system": SYSTEM})))
+    monkeypatch.setattr(attempt_module, "_collect_drift_for_bundle", lambda *a: pytest.fail("helper drift is not server evidence"))
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(session_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda url: None)
+    result = runtime_run_module.run_sync(record, bundle, server_url="http://external.test")
+    for path in [Path(result.metadata_path), Path(result.metadata_path).with_name("attempt.json")]:
+        receipt = json.loads(path.read_text())
+        assert receipt["prompt_id"] == "external-success"
+        assert receipt["drift"]["scope"] == "external_server"
+        report = receipt["drift"]["runtime"]
+        assert report["ok"] is True
+        assert report["status"] == "unverified"
+        assert report["actual"]["observed_argv"] == ARGV
+        assert report["actual"]["packages"] == {
+            "torch": "2.10.0+cu130", "comfy-kitchen": "0.2.34", "comfy-aimdo": "0.5.3",
+        }
 
 
 def test_external_log_locator_is_recorded_as_reference_only() -> None:
@@ -2325,8 +2392,9 @@ def test_one_shot_run_dict_queue_result_sets_run_result_prompt_id(
     assert result.prompt_id == "dict-prompt-id"
 
 
+@pytest.mark.parametrize("preallocated", [False, True])
 def test_bound_runpod_uses_lifecycle_adapter_and_same_attempt_receipt(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, preallocated
 ) -> None:
     @asynccontextmanager
     async def fake_server(*args, **kwargs):
@@ -2399,15 +2467,26 @@ def test_bound_runpod_uses_lifecycle_adapter_and_same_attempt_receipt(
 
     workflow = _make_one_shot_run_wf()
     workflow.outputs = [VibeOutput("1", "SaveImage", name="final")]
+    kwargs = {}
+    if preallocated:
+        from vibecomfy.runtime.run_context import RunContext
+        context = RunContext(*runtime_run_module._allocate_run_dir("run", runtime_root=tmp_path))
+        context.begin("fixture")
+        kwargs["run_context"] = context
+        monkeypatch.setattr(runtime_run_module, "_allocate_run_dir", lambda *a, **kw: pytest.fail("duplicate allocation"))
     result = asyncio.run(
         runtime_run_module.run(
             *_approved(workflow),
             server_url="https://pod-123-8188.proxy.runpod.net",
             runtime_target={"managed": True, "_runpod_lifecycle_adapter": adapter},
+            **kwargs,
         )
     )
 
     assert adapter.calls == ["attach", "download", "log"]
+    assert len(list((tmp_path / "out/runs").iterdir())) == 1
+    if preallocated:
+        assert result.run_id == context.run_id
     run_dir = Path(result.metadata_path).parent
     attempt = json.loads((run_dir / "attempt.json").read_text(encoding="utf-8"))
     assert attempt["adapter"]["kind"] == "runpod_lifecycle"

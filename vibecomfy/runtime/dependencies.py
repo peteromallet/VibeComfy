@@ -12,11 +12,48 @@ import importlib.metadata
 import json
 import platform
 import subprocess
-import sys
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from vibecomfy.contracts.runtime import RuntimeDependencyError, RuntimeRequirements
+
+
+def inspect_external_runtime(server_url: str) -> dict[str, Any]:
+    """Observe the server, never the CLI interpreter or its storage directory.
+
+    Comfy only reports a subset of installed packages. An absent package in
+    this response is unknown, not evidence that the server lacks it.
+    """
+    actual: dict[str, Any] = {
+        "target_kind": "external", "managed": False,
+        "evidence_source": "system_stats", "server_url": server_url,
+        "packages_complete": False,
+    }
+    try:
+        with urllib.request.urlopen(f"{server_url.rstrip('/')}/system_stats", timeout=2) as response:
+            payload = json.load(response)
+        system = payload["system"]
+        if not isinstance(system, Mapping):
+            raise ValueError("system_stats.system must be an object")
+        packages = {
+            row["name"]: row["installed"]
+            for row in system.get("comfy_package_versions", [])
+            if isinstance(row, Mapping) and row.get("name") and row.get("installed")
+        }
+        if system.get("pytorch_version"):
+            packages["torch"] = system["pytorch_version"]
+        argv = system.get("argv")
+        argv = list(argv) if isinstance(argv, list) and all(isinstance(x, str) for x in argv) else None
+        actual.update(
+            comfy_version=system.get("comfyui_version"),
+            comfy_commit=system.get("comfyui_commit"),
+            python_version=str(system["python_version"]).split()[0] if system.get("python_version") else None,
+            packages=packages, observed_argv=argv, launch_flags=argv,
+        )
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        actual.update(target_probe="unverified", probe_error=str(exc))
+    return actual
 
 
 def normalize_runtime_requirements(
@@ -74,7 +111,8 @@ def inspect_runtime_target(
     actual: dict[str, Any] = {
         "python_version": platform.python_version() if runtime_root is None else None,
         "packages": {} if runtime_root is None else None,
-        "launch_flags": list(sys.argv[1:]) if runtime_root is None else None,
+        # The caller's argv describes VibeComfy, not the Comfy process.
+        "launch_flags": None,
     }
     observed_package_names = tuple(dict.fromkeys(("comfy", "comfyui", "torch", *(package_names or ()))))
     if executable is not None and executable.is_file():
@@ -125,6 +163,7 @@ def compare_runtime(
     *,
     target: Mapping[str, Any] | None = None,
     runtime_root: str | Path | None = None,
+    strict_external_launch_flags: bool = False,
 ) -> dict[str, Any]:
     """Compare a declaration with observed facts and return a JSON report."""
     if requirements is None:
@@ -143,7 +182,8 @@ def compare_runtime(
         target=target,
         package_names=[name for name, _constraint in req.packages],
     )
-    if runtime_root is not None:
+    external = actual.get("target_kind") == "external"
+    if runtime_root is not None and not external:
         root = Path(runtime_root).expanduser().resolve(strict=False)
         if "models" not in actual:
             actual["models"] = _discover_models(root, req.models)
@@ -169,7 +209,18 @@ def compare_runtime(
             status = "matching"
         else:
             status = "incompatible" if incompatible else "different"
-        checks.append({"path": path, "expected": expected, "actual": observed, "status": status})
+        checks.append({
+            "path": path,
+            "expected": expected,
+            "actual": observed,
+            "status": status,
+            "reason": {
+                "matching": "observed value satisfies the declared requirement",
+                "unverified": "target did not provide observable evidence",
+                "different": "observed value differs from the declaration",
+                "incompatible": "observed value violates the declaration",
+            }.get(status, "dependency predicate was not satisfied"),
+        })
         if status in {"different", "incompatible", "missing"}:
             mismatches.append(f"{path}: expected {expected!r}, actual {observed!r}")
 
@@ -181,10 +232,21 @@ def compare_runtime(
     for name, constraint in req.packages:
         observed = actual_packages.get(name)
         if observed is None:
-            status = "missing" if isinstance(actual.get("packages"), Mapping) else "unverified"
+            status = "missing" if isinstance(actual.get("packages"), Mapping) and actual.get("packages_complete", True) else "unverified"
         else:
             status = "matching" if _version_satisfies(str(observed), constraint) else "incompatible"
-        checks.append({"path": f"packages.{name}", "expected": constraint, "actual": observed, "status": status})
+        checks.append({
+            "path": f"packages.{name}",
+            "expected": constraint,
+            "actual": observed,
+            "status": status,
+            "reason": {
+                "matching": "installed version satisfies the declared constraint",
+                "missing": "target reported a complete package inventory without this package",
+                "unverified": "target package inventory is incomplete or unavailable",
+                "incompatible": "installed version violates the declared constraint",
+            }.get(status, "package predicate was not satisfied"),
+        })
         if status in {"missing", "incompatible"}:
             mismatches.append(f"packages.{name}: expected {constraint!r}, actual {observed!r}")
 
@@ -196,11 +258,23 @@ def compare_runtime(
             expected_flags = {str(flag) for flag in req.launch_flags}
             observed_flag_set = {str(flag) for flag in observed_flags}
             flag_status = "matching" if expected_flags <= observed_flag_set else "different"
+        if flag_status == "different":
+            if external:
+                flag_status = "incompatible" if strict_external_launch_flags else "unverified"
+            elif actual.get("managed") is True:
+                flag_status = "incompatible"
         checks.append({
             "path": "launch_flags",
             "expected": list(req.launch_flags),
             "actual": observed_flags,
             "status": flag_status,
+            "policy": "strict" if not external or strict_external_launch_flags else "external_observation",
+            "reason": {
+                "matching": "observed launch flags include every declared flag",
+                "different": "observed launch flags do not include every declared flag",
+                "incompatible": "managed or strict external target lacks declared launch flags",
+                "unverified": "target did not provide an authoritative argv",
+            }.get(flag_status, "launch flag predicate was not satisfied"),
         })
         if flag_status in {"different", "incompatible", "missing"}:
             mismatches.append(
@@ -237,6 +311,11 @@ def compare_runtime(
         "declared": True,
         "ok": not ({"missing", "incompatible"} & statuses),
         "status": status,
+        "compliance": (
+            "compliant" if status == "matching"
+            else "unverified" if status == "unverified"
+            else "noncompliant"
+        ),
         "checks": checks,
         "mismatches": mismatches,
         "warnings": warnings,
@@ -254,8 +333,13 @@ def sync_runtime(
     installer: Callable[[list[str], bool], Any] | None = None,
     verify: Callable[[], Mapping[str, Any]] | None = None,
     launch_flags: Sequence[str] | None = None,
+    sync_packages: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Synchronize declared Python packages through the existing pip seam."""
+    """Synchronize selected declared packages through the existing pip seam.
+
+    ``sync_packages`` scopes mutation; omitted means all mismatching declared
+    packages.  The final report always rechecks the complete declaration.
+    """
     req = normalize_runtime_requirements(requirements)
     if req is None:
         return {"declared": False, "ok": True, "status": "unverified", "checks": [], "mismatches": [], "warnings": [], "mode": "sync", "changes": [], "synced": False, "actions": []}
@@ -274,6 +358,23 @@ def sync_runtime(
         raise RuntimeDependencyError(
             "--deps sync requires an existing managed Python at runtime_root/.venv or runtime_root/venv"
         )
+    declared_package_names = {
+        str(name).casefold().replace("_", "-") for name, _constraint in req.packages
+    }
+    selected = (
+        {str(name).casefold().replace("_", "-") for name in sync_packages}
+        if sync_packages is not None
+        else None
+    )
+    if selected is not None:
+        unknown = sorted(selected - declared_package_names)
+        if unknown:
+            raise RuntimeDependencyError(
+                "unknown runtime package(s) selected for synchronization: "
+                + ", ".join(unknown)
+                + "; choose from declared packages: "
+                + (", ".join(sorted(declared_package_names)) or "<none>")
+            )
     report = compare_runtime(req, target=target, runtime_root=runtime_root)
     if not report["declared"] or report["status"] == "matching":
         return {
@@ -297,7 +398,11 @@ def sync_runtime(
             + "; restart the managed server with the declared flags"
         )
     actions: list[str] = []
-    if req.comfy_commit and _check_status(report, "comfy_commit") != "matching":
+    if (
+        req.comfy_commit
+        and _check_status(report, "comfy_commit") != "matching"
+        and selected is None
+    ):
         if runtime_root is None:
             raise RuntimeDependencyError("declared ComfyUI commit requires a managed runtime_root")
         comfy_root = Path(runtime_root).expanduser().resolve(strict=False) / "ComfyUI"
@@ -324,6 +429,7 @@ def sync_runtime(
         f"{name}{constraint}"
         for name, constraint in req.packages
         if _check_status(report, f"packages.{name}") != "matching"
+        and (selected is None or name.casefold().replace("_", "-") in selected)
     ]
     if package_specs:
         action = installer or _install_packages
@@ -374,6 +480,27 @@ def sync_runtime(
         final_target["launch_flags"] = list(target["launch_flags"])
     report = compare_runtime(req, target=final_target, runtime_root=runtime_root)
     if report.get("status") != "matching":
+        # A scoped repair is useful even when other declared requirements were
+        # intentionally left untouched.  Return the fresh full observation so
+        # callers can show both the successful selected actions and the
+        # remaining mismatches.  The report stays noncompliant; the runtime
+        # admission gate decides whether an explicit per-attempt deviation is
+        # present.
+        if selected is not None:
+            return {
+                **report,
+                "mode": "sync",
+                "managed": {
+                    "runtime_root": str(root) if root is not None else None,
+                    "python_executable": str(managed_python) if managed_python is not None else None,
+                },
+                "synced": bool(actions),
+                "partial": True,
+                "selected_packages": sorted(selected),
+                "remaining_mismatches": list(report.get("mismatches", ())),
+                "actions": actions,
+                "changes": list(actions),
+            }
         exc = RuntimeDependencyError(
             "runtime synchronization did not produce a compatible target: "
             + "; ".join(report.get("mismatches", ()))
@@ -489,7 +616,13 @@ def _compare_named_objects(
     if not isinstance(actual, Mapping):
         for item in expected:
             name = str(item.get("name", item.get("slug", "<unnamed>")))
-            checks.append({"path": f"{kind}.{name}", "expected": item, "actual": None, "status": "unverified"})
+            checks.append({
+                "path": f"{kind}.{name}",
+                "expected": item,
+                "actual": None,
+                "status": "unverified",
+                "reason": "target did not provide an authoritative inventory",
+            })
         return
     for item in expected:
         name = str(item.get("name", item.get("slug", "<unnamed>")))
@@ -502,7 +635,17 @@ def _compare_named_objects(
             status = "matching"
         else:
             status = "different"
-        checks.append({"path": f"{kind}.{name}", "expected": item, "actual": observed, "status": status})
+        checks.append({
+            "path": f"{kind}.{name}",
+            "expected": item,
+            "actual": observed,
+            "status": status,
+            "reason": {
+                "matching": "observed object satisfies the declared identity",
+                "missing": "target reported the object as absent",
+                "different": "observed object differs from the declaration",
+            }.get(status, "object predicate was not satisfied"),
+        })
         if status in {"missing", "different"}:
             mismatches.append(f"{kind}.{name}: expected {item!r}, actual {observed!r}")
 

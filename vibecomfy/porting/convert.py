@@ -824,6 +824,10 @@ def _ready_requirements(workflow: VibeWorkflow) -> dict[str, Any]:
         "models": models,
         "custom_nodes": list(workflow.requirements.custom_nodes),
     }
+    ir_refs = list(getattr(workflow.requirements, "custom_node_refs", ()) or ())
+    if ir_refs:
+        requirements["custom_node_refs"] = copy.deepcopy(ir_refs)
+        return requirements
     metadata_requirements = workflow.metadata.get("requirements")
     if isinstance(metadata_requirements, dict):
         normalized, _warnings = normalize_custom_node_requirements(metadata_requirements)

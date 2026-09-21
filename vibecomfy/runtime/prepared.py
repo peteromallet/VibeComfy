@@ -159,6 +159,7 @@ def prepare_workflow(
     server_url: str | None = None,
     offline: bool | None = None,
     remote_adapter: Any | None = None,
+    sync_packages: tuple[str, ...] | list[str] | None = None,
 ) -> PreparationResult:
     """Prepare once per runtime root, serializing setup across callers."""
     from vibecomfy.runtime.locks import resource_lock
@@ -184,6 +185,7 @@ def prepare_workflow(
             server_url=server_url,
             offline=offline,
             remote_adapter=remote_adapter,
+            sync_packages=sync_packages,
         )
 
 
@@ -203,6 +205,7 @@ def _prepare_workflow_unlocked(
     server_url: str | None = None,
     offline: bool | None = None,
     remote_adapter: Any | None = None,
+    sync_packages: tuple[str, ...] | list[str] | None = None,
 ) -> PreparationResult:
     """Prepare canonical dependencies and persist one receipt before queueing."""
     root = (
@@ -235,13 +238,20 @@ def _prepare_workflow_unlocked(
         # Preserve the caller's earlier target observation and actions, but
         # refresh the compatibility result against the selected target.
         supplied = dict(runtime_dependency_report)
-        for key in ("mode", "actions", "synced", "managed", "changes"):
+        for key in (
+            "mode", "actions", "synced", "managed", "changes",
+            "partial", "selected_packages", "remaining_mismatches",
+            "attempt_deviation",
+        ):
             if key in supplied:
                 runtime_report[key] = supplied[key]
     runtime_report["mode"] = dependency_mode
 
     if remote_adapter is not None:
         try:
+            remote_plan = plan.to_json()
+            if sync_packages is not None:
+                remote_plan["dependency_selection"] = list(sync_packages)
             remote_result = remote_adapter.prepare(
                 workflow_reference=reference,
                 dependency_mode=dependency_mode,
@@ -249,7 +259,7 @@ def _prepare_workflow_unlocked(
                 ensure_models=ensure_models,
                 ensure_packs=ensure_packs,
                 offline=(os.environ.get("VIBECOMFY_OFFLINE") == "1") if offline is None else bool(offline),
-                plan=plan.to_json(),
+                plan=remote_plan,
                 runtime_target=dict(runtime_target) if isinstance(runtime_target, Mapping) else None,
             )
         except Exception as exc:
@@ -296,7 +306,10 @@ def _prepare_workflow_unlocked(
                     offline=(os.environ.get("VIBECOMFY_OFFLINE") == "1") if offline is None else offline,
                     launch_flags=list(runtime_requirements.launch_flags),
                 )
-            elif runtime_report.get("status") not in {"matching", "unverified"}:
+            elif (
+                runtime_report.get("status") not in {"matching", "unverified"}
+                and not bool(runtime_report.get("partial"))
+            ):
                 raise RuntimeDependencyError(
                     "runtime dependencies are not compatible with this target: "
                     + "; ".join(str(item) for item in runtime_report.get("mismatches", ()))
@@ -318,9 +331,10 @@ def _prepare_workflow_unlocked(
             read_lockfile,
             validate_install_refs,
         )
+        from vibecomfy.custom_node_refs import effective_lock_entries
 
         try:
-            restore_entries = read_lockfile(lockfile_path)
+            restore_entries = effective_lock_entries(workflow, read_lockfile(lockfile_path))
             packs, unresolved = missing_packs_for_workflow(
                 workflow, lockfile_path=lockfile_path
             )
@@ -331,6 +345,49 @@ def _prepare_workflow_unlocked(
                 "custom-node planning could not resolve class types: "
                 + ", ".join(sorted(unresolved))
             )
+        if sync_packages is not None:
+            requested = {
+                str(name).casefold().replace("_", "-")
+                for name in sync_packages
+            }
+            known_runtime = {
+                str(name).casefold().replace("_", "-")
+                for name, _constraint in (runtime_requirements.packages if runtime_requirements is not None else ())
+            }
+            known_nodes = {
+                str(getattr(pack, "name", "")).casefold().replace("_", "-")
+                for pack in packs
+                if str(getattr(pack, "name", "")).strip()
+            }
+            known_nodes.update(
+                str(name).casefold().replace("_", "-")
+                for name in getattr(getattr(workflow, "requirements", None), "custom_nodes", ())
+            )
+            known_nodes.update(
+                str(item.get("name", item.get("slug", ""))).casefold().replace("_", "-")
+                for item in getattr(getattr(workflow, "requirements", None), "custom_node_refs", ())
+                if isinstance(item, Mapping) and str(item.get("name", item.get("slug", ""))).strip()
+            )
+            if runtime is not None:
+                known_nodes.update(
+                    str(item.get("name", item.get("slug", ""))).casefold().replace("_", "-")
+                    for item in getattr(runtime, "custom_nodes", ())
+                    if isinstance(item, Mapping) and str(item.get("name", item.get("slug", ""))).strip()
+                )
+            unknown = sorted(requested - known_runtime - known_nodes)
+            if unknown:
+                raise PreparationError(
+                    "unknown dependency selected for synchronization: "
+                    + ", ".join(unknown)
+                    + "; choose from declared runtime packages or custom-node packs"
+                )
+            # ``--deps-sync-package`` is intentionally a narrow mutation
+            # selector.  Runtime package names are handled by sync_runtime;
+            # only selected custom-node packs reach the install seam.
+            packs = [
+                pack for pack in packs
+                if str(getattr(pack, "name", "")).casefold().replace("_", "-") in requested
+            ]
         try:
             install_refs_by_name = build_install_refs_by_name(workflow, packs)
             ref_error = validate_install_refs(
@@ -413,6 +470,10 @@ def _prepare_workflow_unlocked(
                 lockfile_path=lockfile_path,
                 restore_entries=restore_entries,
                 install_refs_by_name=install_refs_by_name,
+                runtime_requirements=(
+                    tuple(f"{name}{constraint}" for name, constraint in runtime_requirements.packages)
+                    if runtime_requirements is not None else ()
+                ),
             )
             node_results = [
                 {

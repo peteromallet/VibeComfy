@@ -653,6 +653,70 @@ def test_bundle_identity_lock_miss_fails_closed(monkeypatch: pytest.MonkeyPatch)
         _approval_preconditions(workflow, provider)
 
 
+@pytest.mark.parametrize(
+    "staged_lock,installed,target_has_class,live",
+    [(False, True, True, True), (True, False, True, True),
+     (True, True, False, True), (True, True, True, False), (True, True, True, True)],
+)
+def test_derived_template_live_identity_requires_package_lock_and_checkout(
+    tmp_path, monkeypatch, staged_lock, installed, target_has_class, live,
+):
+    """A checkout found through env cannot replace a missing staged lockfile."""
+    import vibecomfy.workflow_bundle as bundles
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    import vibecomfy.runtime.drift as drift
+    from vibecomfy.node_packs import CustomNodePack
+
+    package_root = tmp_path / "staged-package"
+    package_root.mkdir()
+    monkeypatch.setattr(bundles, "__file__", str(package_root / "vibecomfy" / "workflow_bundle.py"))
+    lock_text = (
+        '[nodepacks.TargetPack]\nname="TargetPack"\ncommit="abc123"\n'
+        'url="https://example.test/TargetPack.git"\nclass_set=["TargetNode"]\n'
+    )
+    # A correct lock in cwd is deliberately not the loaded package's authority.
+    (tmp_path / "custom_nodes.lock").write_text(lock_text)
+    monkeypatch.chdir(tmp_path)
+    if staged_lock:
+        (package_root / "custom_nodes.lock").write_text(lock_text)
+    custom_nodes = tmp_path / "ComfyUI" / "custom_nodes"
+    custom_nodes.mkdir(parents=True)
+    checkout = tmp_path / "installed-checkout"
+    checkout.mkdir()
+    if installed:
+        (custom_nodes / "TargetPack").symlink_to(checkout, target_is_directory=True)
+    monkeypatch.setenv("VIBECOMFY_CUSTOM_NODES_DIR", str(custom_nodes))
+    monkeypatch.setattr(drift, "_git_head", lambda path: "abc123" if path.resolve() == checkout else None)
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda path: (
+        CustomNodePack("TargetPack", "local", frozenset({"TargetNode"})),
+    ))
+    monkeypatch.setattr(object_info, "resolve_class_entry", lambda *a, **kw: type(
+        "Result", (), {"entry": None, "source": "identity_miss"},
+    )())
+    workflow = _workflow("derived-template")
+    workflow.metadata["source_role"] = "materialized_ready_python_template" if live else "authored"
+    workflow.add_node("TargetNode", uid="target-node", value=1)
+    provider = type("Provider", (), {
+        "requires_fresh_target": live,
+        "schema_authority": "live_target" if live else "offline",
+        "get_schema": lambda self, name: object() if target_has_class else None,
+    })()
+    if staged_lock and installed and target_has_class and live:
+        diagnostics = bundles._approval_preconditions(workflow, provider)
+        assert diagnostics[0]["verified_installed_commit"] == "abc123"
+    else:
+        with pytest.raises(WorkflowBundleError) as error:
+            bundles._approval_preconditions(workflow, provider)
+        if not staged_lock:
+            assert str(package_root / "custom_nodes.lock") in str(error.value)
+            assert "installed checkout alone is not a pin" in str(error.value)
+        elif not installed:
+            assert "installed checkout does not match abc123" in str(error.value)
+        else:
+            assert "object-info identity" in str(error.value)
+
+
 def test_bundle_identity_miss_uses_fresh_target_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     """A live target schema can supersede stale offline provenance only at runtime."""
     import vibecomfy.node_packs as node_packs
@@ -775,6 +839,100 @@ def test_bundle_missing_class_gate_is_cwd_independent(tmp_path: Path, monkeypatc
     monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: ())
     provider = type("Provider", (), {"get_schema": lambda _self, class_type: object() if class_type == "BoundNode" else None})()
     _approval_preconditions(workflow, provider)
+
+
+def test_portable_workflow_pin_supplies_lock_without_checkout_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A resolved workflow ref is sufficient lock evidence when the package lock is absent."""
+    import vibecomfy.node_packs as node_packs
+    import vibecomfy.porting.object_info as object_info
+    from vibecomfy.node_packs import CustomNodePack
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("portable-lock")
+    workflow.metadata["requirements"] = {
+        "custom_node_refs": [{
+            "slug": "portable-pack", "source": "git", "url": "https://example.test/portable.git",
+            "commit": "portable-commit", "class_set": ["PortableNode"],
+        }]
+    }
+    workflow.add_node("PortableNode", uid="portable-node", value=1)
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: ())
+    monkeypatch.setattr(
+        object_info, "resolve_class_entry",
+        lambda *_args, **_kwargs: type("Result", (), {"entry": {"class_type": "PortableNode"}})(),
+    )
+    _approval_preconditions(workflow, type("Provider", (), {"get_schema": lambda _self, _name: object()})())
+
+
+def test_portable_workflow_pin_conflict_with_legacy_lock_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    import vibecomfy.node_packs as node_packs
+    from vibecomfy.node_packs import CustomNodePack, LockEntry
+    from vibecomfy.workflow_bundle import _approval_preconditions
+
+    workflow = _workflow("portable-lock-conflict")
+    workflow.metadata["requirements"] = {
+        "custom_node_refs": [{"slug": "portable-pack", "source": "git", "commit": "wanted", "class_set": ["PortableNode"]}]
+    }
+    workflow.add_node("PortableNode", uid="portable-node", value=1)
+    monkeypatch.setattr(node_packs, "read_lockfile", lambda _path: [LockEntry(name="PortablePack", slug="portable-pack", commit="other")])
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda _path: (CustomNodePack("PortablePack", "local", frozenset({"PortableNode"})),))
+    with pytest.raises(WorkflowBundleError, match="identity"):
+        _approval_preconditions(workflow, type("Provider", (), {"get_schema": lambda _self, _name: object()})())
+
+
+def test_fresh_portable_refs_feed_install_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy import node_packs
+    import vibecomfy.node_packs._install as install
+
+    workflow = _workflow("portable-install-catalog")
+    workflow.metadata["requirements"] = {"custom_node_refs": [{
+        "slug": "portable-pack", "url": "https://example.test/portable.git",
+        "commit": "c" * 40, "class_set": ["PortableNode"],
+    }]}
+    workflow.add_node("PortableNode", uid="portable-node", value=1)
+    monkeypatch.setattr(install, "_known_schema_classes", lambda: set())
+    monkeypatch.setattr(node_packs, "get_known_node_packs", lambda *args, **kwargs: ())
+    packs, unresolved = node_packs.missing_packs_for_workflow(workflow, lockfile_path=Path("/missing.lock"))
+    assert unresolved == []
+    assert [pack.name for pack in packs] == ["portable-pack"]
+
+
+def test_effective_lock_keeps_unrelated_legacy_entries() -> None:
+    from vibecomfy.custom_node_refs import effective_lock_entries
+    from vibecomfy.node_packs import LockEntry
+
+    workflow = _workflow("mixed-lock")
+    workflow.metadata["requirements"] = {"custom_node_refs": [{
+        "slug": "portable-pack", "commit": "wanted", "class_set": ["PortableNode"],
+    }]}
+    carried = effective_lock_entries(workflow, [
+        LockEntry(name="PortablePack", slug="portable-pack", commit="other"),
+        LockEntry(name="LegacyPack", slug="legacy-pack", commit="legacy"),
+    ])
+    assert {(entry.slug, entry.commit) for entry in carried} == {
+        ("portable-pack", "wanted"), ("legacy-pack", "legacy"),
+    }
+
+
+def test_lock_custody_fields_roundtrip_through_refs() -> None:
+    from vibecomfy.custom_node_refs import lock_entry_to_ref, workflow_lock_entries
+    from vibecomfy.node_packs import LockEntry
+
+    entry = LockEntry(
+        name="PortablePack", slug="portable-pack", commit="c" * 40,
+        class_set=("PortableNode",), pip_packages=("portable-dep",),
+        source_sha256={"node.py": "a" * 64}, class_schema_sha256="b" * 64,
+        semantic_label="portable", last_seen_at="2026-09-18T00:00:00Z",
+    )
+    workflow = _workflow("custody-roundtrip")
+    workflow.metadata["requirements"] = {"custom_node_refs": [lock_entry_to_ref(entry)]}
+    roundtripped = workflow_lock_entries(workflow)[0]
+    assert roundtripped.pip_packages == entry.pip_packages
+    assert roundtripped.source_sha256 == entry.source_sha256
+    assert roundtripped.class_schema_sha256 == entry.class_schema_sha256
+    assert roundtripped.semantic_label == entry.semantic_label
+    assert roundtripped.last_seen_at == entry.last_seen_at
 
 
 def test_bundle_empty_workflow_rejected_before_compile(monkeypatch: pytest.MonkeyPatch) -> None:
