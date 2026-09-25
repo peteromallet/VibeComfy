@@ -239,9 +239,23 @@ def _merge_package_constraints(value: Mapping[str, Any]) -> dict[str, str]:
         raw = value.get(key)
         if raw is None:
             continue
-        if not isinstance(raw, Mapping):
-            raise RuntimeDependencyError(f"{label} must be a mapping")
-        for name, constraint in raw.items():
+        if isinstance(raw, Mapping):
+            entries = raw.items()
+        elif isinstance(raw, (list, tuple)):
+            # Older envelopes serialized the canonical package tuple as a
+            # list of [name, constraint] pairs.  Accept that wire shape at
+            # the decoder boundary and normalize it to the same mapping used
+            # by the current contract; do not weaken entry validation.
+            entries = []
+            for index, item in enumerate(raw):
+                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                    raise RuntimeDependencyError(
+                        f"{label}[{index}] must be a [name, constraint] pair"
+                    )
+                entries.append((item[0], item[1]))
+        else:
+            raise RuntimeDependencyError(f"{label} must be a mapping or package pairs")
+        for name, constraint in entries:
             if not isinstance(name, str) or not name.strip() or not isinstance(constraint, str) or not constraint.strip():
                 raise RuntimeDependencyError(f"{label} entries need nonblank name and constraint")
             normalized_name = name.strip()

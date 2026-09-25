@@ -38,6 +38,18 @@ def test_runtime_declaration_normalizes_and_roundtrips() -> None:
     }
 
 
+def test_runtime_declaration_accepts_legacy_serialized_package_pairs() -> None:
+    runtime = RuntimeRequirements.from_dict(
+        {"packages": [["torch", "==2.10.0"], ["numpy", ">=2"]]}
+    )
+    assert runtime is not None
+    assert runtime.python_packages == {"numpy": ">=2", "torch": "==2.10.0"}
+    assert runtime.to_dict()["packages"] == {
+        "numpy": ">=2",
+        "torch": "==2.10.0",
+    }
+
+
 def test_runtime_declaration_rejects_legacy_contradictions() -> None:
     with pytest.raises(RuntimeDependencyError, match="contradict"):
         RuntimeRequirements.from_dict(
