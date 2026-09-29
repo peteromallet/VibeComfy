@@ -504,7 +504,7 @@ def _validate_schema_payload_structure(payload: Mapping[str, Any], *, label: str
                 raise _schema_validation_error(spec_path, "input names/specs are malformed")
             if set(spec) != {
                 "type", "required", "default", "choices", "min", "max", "unresolved_choices",
-                "asset_kind",
+                "asset_kind", "dynamic_fields",
             }:
                 raise _schema_validation_error(spec_path, "input spec has incomplete or unknown fields")
             if spec.get("type") is not None and not isinstance(spec.get("type"), str):
@@ -527,6 +527,17 @@ def _validate_schema_payload_structure(payload: Mapping[str, Any], *, label: str
                 raise _schema_validation_error(
                     spec_path,
                     "asset_kind must be null or the canonical 'image' claim",
+                )
+            dynamic_fields = spec.get("dynamic_fields")
+            if not isinstance(dynamic_fields, Mapping) or any(
+                not isinstance(controller, str)
+                or not isinstance(fields, list)
+                or any(not isinstance(field, str) for field in fields)
+                for controller, fields in dynamic_fields.items()
+            ):
+                raise _schema_validation_error(
+                    spec_path,
+                    "dynamic_fields must map strings to lists of strings",
                 )
             _validate_json_value(spec.get("default"), path=f"{spec_path}.default")
         for field_name in ("input_order", "widget_input_order"):
