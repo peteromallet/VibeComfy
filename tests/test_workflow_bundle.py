@@ -14,6 +14,7 @@ import pytest
 from vibecomfy.security import CapabilityFenceError
 from vibecomfy.testing.canonical import canonical_json
 from vibecomfy.security.provenance import Provenance
+from vibecomfy.contracts.runtime import RuntimeRequirements
 from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.workflow import (
     VibeInput,
@@ -79,6 +80,30 @@ def test_reemitting_a_loaded_pair_is_byte_deterministic(tmp_path: Path) -> None:
 
     assert (first_dir / "workflow.py").read_bytes() == (second_dir / "workflow.py").read_bytes()
     assert (first_dir / "workflow.vibe.json").read_bytes() == (second_dir / "workflow.vibe.json").read_bytes()
+
+
+def test_reemitting_a_loaded_pair_preserves_runtime_requirements(tmp_path: Path) -> None:
+    workflow = _nonempty_workflow("runtime-reemit")
+    workflow.requirements.runtime = RuntimeRequirements.from_dict({
+        "comfy_commit": "ee71d5c4993f29086b27fde1629a945ae48425bf",
+        "comfy_version": "==0.36.0",
+        "packages": {"torch": "==2.10.0+cu130"},
+        "launch_flags": ["--use-ck-attention", "--disable-comfy-compiler"],
+    })
+
+    first = tmp_path / "first.py"
+    emit_bundle(workflow, first, {"operation": "authored"})
+    loaded = load_bundle(first, trust=Provenance.USER_CONFIRMED)
+
+    second = tmp_path / "second.py"
+    reemitted = emit_bundle(loaded.workflow, second, {"operation": "authored"})
+    reopened = load_bundle(second, trust=Provenance.USER_CONFIRMED)
+
+    expected = workflow.requirements.runtime.to_dict()
+    assert loaded.workflow.requirements.runtime.to_dict() == expected
+    assert reopened.workflow.requirements.runtime.to_dict() == expected
+    assert reemitted.semantic_digest == loaded.semantic_digest
+    assert reopened.semantic_digest == loaded.semantic_digest
 
 
 def test_source_provenance_report_survives_bundle_reload_and_reemission(tmp_path: Path) -> None:
