@@ -7,13 +7,8 @@ import hashlib
 import inspect
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
-from vibecomfy.porting.widgets.historical import (
-    HistoricalWidgetMappingRefused,
-    HistoricalWidgetReconciliation,
-    admit_historical_widget_mappings,
-)
 from vibecomfy.workflow import RawWidgetPayload, VibeWorkflow
 from vibecomfy.workflow_bundle import (
     ApprovedProjectionRecord,
@@ -27,6 +22,9 @@ from vibecomfy.workflow_bundle import (
     _v2_marker,
     canonical_digest,
 )
+
+if TYPE_CHECKING:
+    from vibecomfy.porting.widgets.historical import HistoricalWidgetReconciliation
 
 
 class ReconciliationError(RuntimeError):
@@ -560,10 +558,14 @@ def reconcile_before_queue(
         generation = str(target_schema_generation)
         schema = {**schema, "generation": generation}
     # Keep the runtime package importable while ingest is importing the schema
-    # provider.  Snapshot capture itself imports normalization/schema modules,
-    # so this dependency belongs at the reconciliation boundary, not module
+    # provider.  Snapshot capture and the widgets package import schema modules,
+    # so these dependencies belong at the reconciliation boundary, not module
     # import time.
     from vibecomfy.ingest.snapshot import historical_widget_evidence_by_uid
+    from vibecomfy.porting.widgets.historical import (
+        HistoricalWidgetMappingRefused,
+        admit_historical_widget_mappings,
+    )
 
     workflow = bundle.workflow.copy()
     evidence_by_uid = historical_widget_evidence_by_uid(workflow)

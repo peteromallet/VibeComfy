@@ -2752,3 +2752,43 @@ def test_public_imports_are_cold_process_safe() -> None:
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == "IMPORT_OK"
         assert result.stderr == ""
+
+
+def test_public_bundle_compile_is_cold_process_safe_with_models_root() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONHASHSEED"] = "0"
+    env["PYTHONPATH"] = str(repo)
+    script = """
+import json
+import sys
+from pathlib import Path
+
+if sys.argv[1] == "runtime-first":
+    import vibecomfy.runtime
+from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle, load_bundle
+from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+import vibecomfy.workflow_bundle as bundle_module
+
+repo = Path.cwd().resolve()
+assert Path(bundle_module.__file__).resolve() == repo / "vibecomfy/workflow_bundle.py"
+workflow = VibeWorkflow("astrid-interface-probe", WorkflowSource("astrid-interface-probe"))
+workflow.add_node("Integer", uid="integer-node", value=7)
+bundle = load_bundle(workflow)
+assert isinstance(bundle, WorkflowBundle)
+record = bundle.compile(models_root=repo / "models")
+assert isinstance(record, ApprovedProjectionRecord)
+assert record.to_dict()["api_projection"] == {"1": {"class_type": "Integer", "inputs": {"value": 7}}}
+print(json.dumps(record.to_dict(), sort_keys=True))
+"""
+    results = []
+    for mode in ("bundle-first", "runtime-first"):
+        result = subprocess.run(
+            [sys.executable, "-c", script, mode],
+            cwd=repo, env=env, capture_output=True, text=True, check=False,
+            timeout=30,
+        )
+        assert result.returncode == 0, f"{mode}: {result.stdout}\n{result.stderr}"
+        results.append(json.loads(result.stdout))
+    assert results[0] == results[1]
