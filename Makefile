@@ -96,6 +96,9 @@ ROOT_ALLOWLIST := \
 	.vscode \
 	LICENSE \
 	Makefile \
+	E2-H3-onboarding-addendum.md \
+	E2-regression-batch-receipt.md \
+	comfy-inspection \
 	README.md \
 	cloud.yaml \
 	custom_nodes.lock \
