@@ -94,6 +94,9 @@ exclude = [
   "/vibecomfy/comfy_nodes/web_dist/**",
 ]
 
+[tool.hatch.build.targets.wheel.force-include]
+"ready_templates" = "vibecomfy/ready_templates"
+
 [tool.hatch.build.targets.sdist]
 exclude = [
   "/vibecomfy/comfy_nodes/web_dist/**",

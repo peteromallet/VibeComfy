@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from vibecomfy.errors import CheckoutRequiredError
 from vibecomfy.handles import Handle
+from vibecomfy.registry import ready as ready_registry
 from vibecomfy.registry.ready_template import (
     bind_input,
     bind_output,
@@ -11,6 +13,20 @@ from vibecomfy.registry.ready_template import (
     ready_workflow,
 )
 from vibecomfy.workflow import VibeOutput, VibeWorkflow
+
+
+def test_ready_template_root_supports_packaged_install(monkeypatch, tmp_path) -> None:
+    packaged_root = tmp_path / "vibecomfy" / "ready_templates"
+    packaged_root.mkdir(parents=True)
+    module_path = tmp_path / "vibecomfy" / "registry" / "ready.py"
+
+    def no_checkout():
+        raise CheckoutRequiredError("checkout required")
+
+    monkeypatch.setattr(ready_registry, "__file__", str(module_path))
+    monkeypatch.setattr(ready_registry, "find_repo_root", no_checkout)
+
+    assert ready_registry.repo_ready_template_root() == packaged_root
 
 
 # ---------------------------------------------------------------------------
