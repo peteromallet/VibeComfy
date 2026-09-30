@@ -1,10 +1,12 @@
 {
   "vibecomfy": {
-    "revision": "46ed4f8aeea144b4bbf1d9293b0f2012f05dddc2",
-    "tree": "6ba22cf8a1fb5ec3707dcccf4100ea5f44f83674",
-    "wheel": "e589917a94ef2c988d63556c39e3542eee89f9389c980493fea6eb605973b352"
+    "artifact": "vendor/wheels/vibecomfy-2.8.0-py3-none-any.whl",
+    "revision": "3a1cf1bc013620459220e3abdc250019ece2d8d6",
+    "tree": "9609654b124126933d0af39c5e22a8f365207a2d",
+    "wheel": "1d3a54a4d72c7e7a4a58bc771ff6e2dc89343bad204c2842c63f1d11e2ed1c05"
   },
   "runpod-lifecycle": {
+    "artifact": "vendor/wheels/runpod_lifecycle-0.3.1.dev0-py3-none-any.whl",
     "revision": "15748580e4a5922eb4a856b36d88faa1f67004e1",
     "version": "0.3.1.dev0",
     "tree": "ff6da3f8360e7544580ed7512117d3a8ef828680",

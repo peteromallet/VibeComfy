@@ -139,10 +139,10 @@ vibecomfy = "vibecomfy.testing._pytest_plugin"
 
 [tool.uv.sources]
 comfyui = { index = "appmana" }
-# The selected RunPod candidate is local and intentionally unpushed.  The
-# lockfile records this path; candidate-dependencies.json binds its revision,
-# tree and selected wheel digest for isolated staging/install checks.
-runpod-lifecycle = { path = "../../../../runpod-lifecycle/.otto/worktrees/h3-full-merge-megado-plan-20260930", editable = false }
+# The selected RunPod candidate is staged as a hash-bound wheel inside this
+# candidate. candidate-dependencies.json binds its revision, tree and wheel
+# digest for isolated offline staging/install checks.
+runpod-lifecycle = { path = "vendor/wheels/runpod_lifecycle-0.3.1.dev0-py3-none-any.whl", editable = false }
 
 [[tool.uv.index]]
 name = "appmana"
