@@ -563,9 +563,10 @@ specific gaps and corrected preliminary claims. This was factual plan discovery;
 no product tests or completion reviews were run. Source was
 `c43e870d6c15ac9a31c0141d3212ae3a032d86ac`, including this untracked direction
 document and the existing untracked corpus evidence. Product source was clean.
-Detailed findings and their dispositions are in the
-[run receipt](/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/receipts/canonical-cleanliness-luna-audit-20260911.md).
-The [prepared Megado brief](/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/briefs/canonical-cleanliness-prepared.md)
+Detailed findings and their dispositions are in the historical run receipt
+`/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/receipts/canonical-cleanliness-luna-audit-20260911.md` (artifact unavailable in this checkout).
+The prepared Megado brief
+`/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/briefs/canonical-cleanliness-prepared.md` (artifact unavailable in this checkout)
 records the latest delivery authority, source custody, task routes,
 estimate and review-history constraints.
 
@@ -714,8 +715,9 @@ for the implementation.
 
 Astra high adjudicated the proposals on 2026-09-11. This section and the revised
 v2 schema above supersede the earlier map-plus-order and stored-structure-hash
-sketches. The [decision receipt](/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/receipts/S90-20260911-astra.md)
-records the outcome. Preparation remains complete; implementation is NOT RUN.
+sketches. The decision receipt is historical provenance at
+`/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/receipts/S90-20260911-astra.md` (artifact unavailable in this checkout).
+It records the outcome. Preparation remains complete; implementation is NOT RUN.
 
 | Adopted simplification | Required boundary |
 | --- | --- |
@@ -750,7 +752,8 @@ review. Execution still awaits the user's instruction.
 ## Workflow path census — prepared cleanup candidates
 
 Three Luna medium explorers traced onboarding, JSON output and publication at
-the same source HEAD. [Findings and host qualifications](/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/receipts/workflow-path-census-20260911.md).
+the same source HEAD. Findings and host qualifications are recorded in the historical receipt
+`/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/receipts/workflow-path-census-20260911.md` (artifact unavailable in this checkout).
 There is one shared semantic representation and common lower-level owners,
 but several orchestration/publication paths. The aim is one owner per invariant,
 not one function for every source and output format. This census ran no tests.
@@ -800,7 +803,8 @@ or implementation authorization follows from this triage.
 ## Adjacent-smell investigation outcomes
 
 The requested four-topic Luna inspection is complete at source-inspection level.
-[Receipt and result custody](/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/receipts/adjacent-smell-investigation-20260911.md).
+Receipt and result custody are recorded in the historical receipt
+`/Users/hannahomalley/Documents/Codex/2026-09-08/goal-continue-the-existing-megado-plan/VibeComfy-integrity/.otto/runs/unified-workflow-integrity-20260909/receipts/adjacent-smell-investigation-20260911.md` (artifact unavailable in this checkout).
 The metadata agent's result was unavailable after interruption; a bounded host
 source trace completed that topic. No product tests or implementation ran.
 

@@ -92,6 +92,12 @@ def emit_canonical_python(
                 "unsupported",
             )
         }
+    # Runtime pins are part of the workflow's semantic contract.  Preserve
+    # the structured IR value when rebuilding canonical Python; otherwise a
+    # round-trip changes the semantic digest even though the graph is the
+    # same, and a valid Python/companion pair cannot be regenerated.
+    if workflow.requirements.runtime is not None:
+        requirements["runtime"] = workflow.requirements.runtime.to_dict()
     # Structured node pins are authoritative on WorkflowRequirements.  Keep
     # accepting metadata.requirements for legacy hand-authored workflows, but
     # never let a stale caller-supplied READY_REQUIREMENTS override the IR.

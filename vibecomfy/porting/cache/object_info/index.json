@@ -1085,6 +1085,7 @@
   "MoGePointMapToMesh": "comfy_core@object_info_comfyui_0.24.0.1.json",
   "MoGeRender": "comfy_core@object_info_comfyui_0.24.0.1.json",
   "MochaEmbeds": "ComfyUI-WanVideoWrapper@runpod-snapshot.json",
+  "ModelAttentionBackend": "comfy_core@zz-official-ee71d5c4.json",
   "ModelComputeDtype": "comfy_core@object_info_comfyui_0.24.0.1.json",
   "ModelMemoryUsageFactorOverride": "ComfyUI-KJNodes@runpod-snapshot.json",
   "ModelMemoryUseReportPatch": "ComfyUI-KJNodes@runpod-snapshot.json",

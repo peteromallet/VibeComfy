@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from vibecomfy.contracts.runtime import RuntimeRequirements
 from vibecomfy.identity.scope import sg_key
 from vibecomfy.porting.edit.bundle_service import (
     BundleTransitionError,
@@ -63,13 +64,18 @@ def _clean_gate():
     _gate_context_var.set(prior)
 
 
-def _bundle(directory: Path) -> tuple[Path, bytes, FrozenSchemaSnapshotProvider]:
+def _bundle(
+    directory: Path,
+    *,
+    runtime_requirements: RuntimeRequirements | None = None,
+) -> tuple[Path, bytes, FrozenSchemaSnapshotProvider]:
     directory.mkdir(parents=True, exist_ok=True)
     source_bytes = b'{"workflow_id":"service-fixture","graph":"original bytes\\n"}\n'
     source_json = directory / "source.json"
     source_json.write_bytes(source_bytes)
     workflow = VibeWorkflow("service-fixture", WorkflowSource("service-fixture"))
     workflow.add_node("Integer", uid="integer-one", value=7)
+    workflow.requirements.runtime = runtime_requirements
     python_path = directory / "workflow.py"
     emit_bundle(workflow, python_path, {"operation": "authored"})
     return python_path, source_bytes, _provider()
@@ -106,6 +112,39 @@ def test_typed_edit_saves_and_reloads_pair_with_parent_revision(tmp_path: Path) 
     assert reloaded.workflow.nodes["1"].inputs["value"] == 23
     assert (python_path.parent / "source.json").read_bytes() == source_bytes
     assert any(entry["reason"] == "assume_yes_bypass" for entry in context.audit)
+
+
+def test_typed_edit_admits_canonical_input_spec_and_preserves_runtime_requirements(
+    tmp_path: Path,
+) -> None:
+    requirements = RuntimeRequirements.from_dict({
+        "comfy_commit": "ee71d5c4993f29086b27fde1629a945ae48425bf",
+        "packages": {"torch": "==2.10.0+cu130"},
+        "launch_flags": ["--use-ck-attention"],
+    })
+    python_path, _source_bytes, provider = _bundle(
+        tmp_path / "input",
+        runtime_requirements=requirements,
+    )
+    serialized_spec = provider.snapshot.schemas["Integer"]["inputs"]["value"]
+    assert "dynamic_fields" in serialized_spec
+
+    _gate()
+    result = transition_bundle(
+        python_path,
+        tool_calls=_edit_call(23),
+        schema_provider=provider,
+    )
+
+    reloaded = load_bundle(
+        python_path,
+        trust=Provenance.USER_CONFIRMED,
+        schema_provider=provider,
+    )
+    assert result.status == "saved"
+    assert reloaded.workflow.nodes["1"].inputs["value"] == 23
+    assert reloaded.workflow.requirements.runtime is not None
+    assert reloaded.workflow.requirements.runtime.to_dict() == requirements.to_dict()
 
 
 def test_typed_edit_freezes_live_authoring_catalog_at_transition_boundary(tmp_path: Path) -> None:

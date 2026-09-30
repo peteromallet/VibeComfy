@@ -2253,6 +2253,19 @@ def test_image_upload_schema_marker_survives_frozen_schema_payload() -> None:
     with pytest.raises(SchemaSnapshotError, match="incomplete or unknown fields"):
         _validate_schema_payload_structure(missing, label="schema")
 
+    for malformed in (
+        None,
+        [],
+        "fields",
+        {"format": "crf"},
+        {"format": ["crf", 1]},
+        {1: ["crf"]},
+    ):
+        tampered = deepcopy(snapshot_payload)
+        tampered["schemas"]["LoadImage"]["inputs"]["image"]["dynamic_fields"] = malformed
+        with pytest.raises(SchemaSnapshotError, match="dynamic_fields"):
+            _validate_schema_payload_structure(tampered, label="schema")
+
 
 def test_recursive_node_decodes_typed_optional_socket_carriers() -> None:
     from vibecomfy.workflow import _raw_recursive_node

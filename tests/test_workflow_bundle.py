@@ -14,6 +14,7 @@ import pytest
 from vibecomfy.security import CapabilityFenceError
 from vibecomfy.testing.canonical import canonical_json
 from vibecomfy.security.provenance import Provenance
+from vibecomfy.contracts.runtime import RuntimeRequirements
 from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.workflow import (
     VibeInput,
@@ -79,6 +80,30 @@ def test_reemitting_a_loaded_pair_is_byte_deterministic(tmp_path: Path) -> None:
 
     assert (first_dir / "workflow.py").read_bytes() == (second_dir / "workflow.py").read_bytes()
     assert (first_dir / "workflow.vibe.json").read_bytes() == (second_dir / "workflow.vibe.json").read_bytes()
+
+
+def test_reemitting_a_loaded_pair_preserves_runtime_requirements(tmp_path: Path) -> None:
+    workflow = _nonempty_workflow("runtime-reemit")
+    workflow.requirements.runtime = RuntimeRequirements.from_dict({
+        "comfy_commit": "ee71d5c4993f29086b27fde1629a945ae48425bf",
+        "comfy_version": "==0.36.0",
+        "packages": {"torch": "==2.10.0+cu130"},
+        "launch_flags": ["--use-ck-attention", "--disable-comfy-compiler"],
+    })
+
+    first = tmp_path / "first.py"
+    emit_bundle(workflow, first, {"operation": "authored"})
+    loaded = load_bundle(first, trust=Provenance.USER_CONFIRMED)
+
+    second = tmp_path / "second.py"
+    reemitted = emit_bundle(loaded.workflow, second, {"operation": "authored"})
+    reopened = load_bundle(second, trust=Provenance.USER_CONFIRMED)
+
+    expected = workflow.requirements.runtime.to_dict()
+    assert loaded.workflow.requirements.runtime.to_dict() == expected
+    assert reopened.workflow.requirements.runtime.to_dict() == expected
+    assert reemitted.semantic_digest == loaded.semantic_digest
+    assert reopened.semantic_digest == loaded.semantic_digest
 
 
 def test_source_provenance_report_survives_bundle_reload_and_reemission(tmp_path: Path) -> None:
@@ -450,6 +475,29 @@ def test_raw_import_cannot_queue_and_explicit_python_conversion_restores_authori
     reloaded = load_bundle(destination, trust=Provenance.USER_CONFIRMED)
     assert reloaded.authority_kind == "canonical"
     assert reloaded.compile().api_projection["1"]["class_type"] == "Integer"
+
+
+def test_canonical_reload_aliases_primitive_widget_carrier(tmp_path: Path) -> None:
+    """A canonical reload must compile compact primitive widget carriers."""
+    source = tmp_path / "raw.json"
+    source.write_text(
+        json.dumps({
+            "workflow_id": "raw-primitive-widget",
+            "prompt": {"1": {"class_type": "Integer", "inputs": {"widget_0": 7}}},
+        }),
+        encoding="utf-8",
+    )
+
+    raw = load_bundle(source)
+    destination = tmp_path / "converted.py"
+    emit_bundle(
+        raw.workflow,
+        destination,
+        {"operation": "captured", "source_digest": "a" * 64},
+    )
+    reloaded = load_bundle(destination, trust=Provenance.USER_CONFIRMED)
+
+    assert reloaded.compile().api_projection["1"]["inputs"] == {"value": 7}
 
 
 def test_bundle_compile_rejects_unresolved_class_and_identity() -> None:
@@ -2727,3 +2775,43 @@ def test_public_imports_are_cold_process_safe() -> None:
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == "IMPORT_OK"
         assert result.stderr == ""
+
+
+def test_public_bundle_compile_is_cold_process_safe_with_models_root() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONHASHSEED"] = "0"
+    env["PYTHONPATH"] = str(repo)
+    script = """
+import json
+import sys
+from pathlib import Path
+
+if sys.argv[1] == "runtime-first":
+    import vibecomfy.runtime
+from vibecomfy.workflow_bundle import ApprovedProjectionRecord, WorkflowBundle, load_bundle
+from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+import vibecomfy.workflow_bundle as bundle_module
+
+repo = Path.cwd().resolve()
+assert Path(bundle_module.__file__).resolve() == repo / "vibecomfy/workflow_bundle.py"
+workflow = VibeWorkflow("astrid-interface-probe", WorkflowSource("astrid-interface-probe"))
+workflow.add_node("Integer", uid="integer-node", value=7)
+bundle = load_bundle(workflow)
+assert isinstance(bundle, WorkflowBundle)
+record = bundle.compile(models_root=repo / "models")
+assert isinstance(record, ApprovedProjectionRecord)
+assert record.to_dict()["api_projection"] == {"1": {"class_type": "Integer", "inputs": {"value": 7}}}
+print(json.dumps(record.to_dict(), sort_keys=True))
+"""
+    results = []
+    for mode in ("bundle-first", "runtime-first"):
+        result = subprocess.run(
+            [sys.executable, "-c", script, mode],
+            cwd=repo, env=env, capture_output=True, text=True, check=False,
+            timeout=30,
+        )
+        assert result.returncode == 0, f"{mode}: {result.stdout}\n{result.stderr}"
+        results.append(json.loads(result.stdout))
+    assert results[0] == results[1]

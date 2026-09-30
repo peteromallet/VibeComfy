@@ -916,7 +916,12 @@ def apply_positional_widget_aliases(
     input_aliases: list[str | None] | tuple[str | None, ...] | None = None,
     schema_provider: Any | None = None,
 ) -> None:
-    if class_type not in COMPILE_WIDGET_ALIAS_CLASS_TYPES and not input_aliases and schema_provider is None:
+    if (
+        class_type not in COMPILE_WIDGET_ALIAS_CLASS_TYPES
+        and class_type not in WIDGET_SEMANTIC_NAMES
+        and not input_aliases
+        and schema_provider is None
+    ):
         return
     widget_keys = sorted(
         [key for key in inputs if key.startswith("widget_")],
