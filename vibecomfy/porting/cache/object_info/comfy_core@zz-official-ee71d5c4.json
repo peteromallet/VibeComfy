@@ -1,0 +1,23 @@
+{
+  "ModelAttentionBackend": {
+    "category": "model/patch",
+    "display_name": "Model Attention Backend",
+    "function": "execute",
+    "input_order": {"required": ["model", "attention"]},
+    "input_order_all": ["model", "attention"],
+    "inputs": {
+      "required": {
+        "model": ["MODEL"],
+        "attention": [["pytorch attention", "comfy kitchen attention"], {"default": "pytorch attention"}]
+      }
+    },
+    "name": "ModelAttentionBackend",
+    "object_info_widget_order": ["attention"],
+    "outputs": [{"is_list": false, "name": "model", "type": "MODEL"}],
+    "pack": "comfy_core",
+    "pack_version": "zz-official-ee71d5c4",
+    "python_module": "comfy_extras.nodes_model_advanced",
+    "source_commit": "ee71d5c4993f29086b27fde1629a945ae48425bf",
+    "source_sha256": "59bcf2c72de0f931383b74c9be5b6fc2ced06a315277d34631ae5ac9ac90fa91"
+  }
+}
