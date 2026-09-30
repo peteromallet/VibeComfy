@@ -60,11 +60,11 @@ agent = [
 ]
 runpod-local = [
   "python-dotenv>=1.0",
-  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6",
+  "runpod-lifecycle>=0.3.1.dev0,<0.4",
 ]
 runpod-launch = [
   "python-dotenv>=1.0",
-  "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@14d12f3c5e100247ffb1360c8fe6ba82aa5c7aa6",
+  "runpod-lifecycle>=0.3.1.dev0,<0.4",
 ]
 intent = [
   # Optional extra for the intent-oracle gate (S3).  anthropic is needed for
@@ -139,6 +139,10 @@ vibecomfy = "vibecomfy.testing._pytest_plugin"
 
 [tool.uv.sources]
 comfyui = { index = "appmana" }
+# The selected RunPod candidate is local and intentionally unpushed.  The
+# lockfile records this path; candidate-dependencies.json binds its revision,
+# tree and selected wheel digest for isolated staging/install checks.
+runpod-lifecycle = { path = "../../../../runpod-lifecycle/.otto/worktrees/h3-full-merge-megado-plan-20260930", editable = false }
 
 [[tool.uv.index]]
 name = "appmana"
