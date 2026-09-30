@@ -1,9 +1,9 @@
 {
   "vibecomfy": {
     "artifact": "vendor/wheels/vibecomfy-2.8.0-py3-none-any.whl",
-    "revision": "3a1cf1bc013620459220e3abdc250019ece2d8d6",
-    "tree": "9609654b124126933d0af39c5e22a8f365207a2d",
-    "wheel": "1d3a54a4d72c7e7a4a58bc771ff6e2dc89343bad204c2842c63f1d11e2ed1c05"
+    "revision": "31f90bb03d330283b76e7dbdda51197be787090d",
+    "tree": "101744f0d87eebe5ddf6752c10f01f52dc94e3e9",
+    "wheel": "e589917a94ef2c988d63556c39e3542eee89f9389c980493fea6eb605973b352"
   },
   "runpod-lifecycle": {
     "artifact": "vendor/wheels/runpod_lifecycle-0.3.1.dev0-py3-none-any.whl",
