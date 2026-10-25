@@ -38,9 +38,15 @@ def repo_relative_path(path: str | Path) -> str:
     Paths outside the checkout are returned as resolved absolute paths.
     """
     raw_path = Path(path)
-    resolved = (raw_path if raw_path.is_absolute() else find_repo_root() / raw_path).resolve()
     try:
-        return resolved.relative_to(find_repo_root()).as_posix()
+        root = find_repo_root()
+    except CheckoutRequiredError:
+        # An installed (wheel) VibeComfy has no checkout to be relative to; provenance
+        # keeps the given path rather than failing the whole conversion.
+        return str(raw_path.resolve()) if raw_path.is_absolute() else raw_path.as_posix()
+    resolved = (raw_path if raw_path.is_absolute() else root / raw_path).resolve()
+    try:
+        return resolved.relative_to(root).as_posix()
     except ValueError:
         return str(resolved)
 

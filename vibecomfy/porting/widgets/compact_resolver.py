@@ -693,12 +693,11 @@ def _provider_compact_aliases(schema_provider: Any | None, class_type: str) -> l
     inputs = getattr(schema, "inputs", None)
     if not isinstance(inputs, Mapping):
         return []
-    names: list[str | None] = []
-    for name, spec in inputs.items():
-        if not _provider_input_spec_is_widget_value(spec):
-            continue
-        names.append(str(name))
-    return names
+    from vibecomfy.porting.widgets.aliases import _with_control_slots
+
+    return _with_control_slots(
+        (str(name), spec) for name, spec in inputs.items() if _provider_input_spec_is_widget_value(spec)
+    )
 
 
 def _schema_explicit_widget_order(
