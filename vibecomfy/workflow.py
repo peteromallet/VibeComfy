@@ -3098,7 +3098,7 @@ def _format_available_names(names: Any) -> str:
 def _is_ui_only_prompt_input(key: str, value: Any) -> bool:
     if value is None:
         return True
-    if key == "control_after_generate":
+    if key == "control_after_generate" or key.endswith(".control_after_generate"):
         return True
     if key == "add_noise_to_samples" and value == "":
         return True

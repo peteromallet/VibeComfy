@@ -29,6 +29,12 @@ class InputSpec:
     # format=video/h264-mp4 exposes crf and pix_fmt).  Keep the observed
     # controller-to-field contract instead of flattening those fields away.
     dynamic_fields: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    # COMFY_DYNAMICCOMBO_V3 (V3 nodes: BlockSparseAttention "selection",
+    # SaveVideo "format"): option key -> that option's raw object_info inputs
+    # ({"required": {...}, "optional": {...}}).  The chosen option's widgets
+    # follow the controller's value in widgets_values and run as dotted
+    # inputs ("format.codec"); dynamic_fields lists every such name.
+    dynamic_options: Mapping[str, Any] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class OutputSpec:
@@ -141,7 +147,7 @@ def _schema_snapshot_digest(payload: Mapping[str, Any]) -> str:
 
 def _input_spec_payload(spec: Any) -> dict[str, Any]:
     dynamic_fields = getattr(spec, "dynamic_fields", {}) or {}
-    return {
+    payload = {
         "type": getattr(spec, "type", None),
         "required": bool(getattr(spec, "required", False)),
         "default": _thaw_jsonable(_freeze_jsonable(getattr(spec, "default", None))),
@@ -156,6 +162,12 @@ def _input_spec_payload(spec: Any) -> dict[str, Any]:
             if isinstance(fields, (list, tuple, set, frozenset))
         }
     }
+    # Only dynamic-combo controllers carry options; every other spec keeps
+    # its existing payload (and digest) unchanged.
+    dynamic_options = getattr(spec, "dynamic_options", {}) or {}
+    if dynamic_options:
+        payload["dynamic_options"] = _thaw_jsonable(_freeze_jsonable(dict(dynamic_options)))
+    return payload
 
 
 def _output_spec_payload(spec: Any) -> dict[str, Any]:
@@ -252,6 +264,9 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
                 and isinstance(fields, Sequence)
                 and not isinstance(fields, (str, bytes, bytearray))
             },
+            dynamic_options=dict(spec.get("dynamic_options"))
+            if isinstance(spec.get("dynamic_options"), Mapping)
+            else {},
         )
     raw_outputs = raw.get("outputs")
     outputs = (

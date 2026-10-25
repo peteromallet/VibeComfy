@@ -420,17 +420,18 @@ def _phase_c_value_primitives(
         {nid: node for nid, node in nodes.items() if nid in value_prim_ids}
     ):
         outbound = _sorted_edges([edge for edge in edges if edge.from_node == node_id])
-        if node.class_type == "PrimitiveStringMultiline":
+        value_type = _LINKED_PRIMITIVE_TYPES.get(node.class_type)
+        if value_type is not None:
             inbound = _sorted_edges([edge for edge in edges if edge.to_node == node_id])
             if len(inbound) == 1:
-                _pass_through_multiline_primitive(nodes, edges, node_id, inbound[0], make_error)
+                _pass_through_linked_primitive(nodes, edges, node_id, inbound[0], value_type, make_error)
                 changed = True
                 continue
             if len(inbound) > 1:
                 raise make_error(
                     HelperResolveErrorSpec(
-                        f"PrimitiveStringMultiline node {node_id!r} has multiple inbound sources",
-                        next_action="Keep exactly one inbound source for the multiline primitive.",
+                        f"{node.class_type} node {node_id!r} has multiple inbound sources",
+                        next_action="Keep exactly one inbound source for the primitive.",
                         code="helper_edge_ambiguous",
                     )
                 )
@@ -480,43 +481,61 @@ def _phase_c_value_primitives(
     return changed
 
 
-def _pass_through_multiline_primitive(
-    nodes: Mapping[str, Any], edges: list[Any], node_id: str, inbound_edge: Any, make_error: ErrorFactory
-) -> None:
-    """Replace a linked multiline helper with its single typed source.
+# Value primitives whose "value" widget can instead be fed by a link (a
+# subgraph input wired to an outer node, e.g. the stock LTX-2.5 template's
+# ResolutionSelector -> PrimitiveInt height).  ComfyUI lets the link win.
+_LINKED_PRIMITIVE_TYPES = {
+    "PrimitiveBoolean": "BOOLEAN",
+    "PrimitiveInt": "INT",
+    "PrimitiveFloat": "FLOAT",
+    "PrimitiveString": "STRING",
+    "PrimitiveStringMultiline": "STRING",
+}
 
-    A linked multiline widget is a UI wrapper, not a literal override.  Rewrite
+
+def _pass_through_linked_primitive(
+    nodes: Mapping[str, Any],
+    edges: list[Any],
+    node_id: str,
+    inbound_edge: Any,
+    value_type: str,
+    make_error: ErrorFactory,
+) -> None:
+    """Replace a linked value primitive with its single typed source.
+
+    A linked primitive widget is a UI wrapper, not a literal override.  Rewrite
     every outgoing edge in place so a source with fanout remains a fanout after
     the wrapper is removed.  Unknown socket metadata is tolerated for corpus
     nodes, but a known mismatch is rejected before any mutation.
     """
+    class_type = nodes[node_id].class_type
     source_node = nodes.get(str(inbound_edge.from_node))
     if source_node is None:
         raise make_error(
             HelperResolveErrorSpec(
-                f"PrimitiveStringMultiline source node {inbound_edge.from_node!r} not found",
+                f"{class_type} source node {inbound_edge.from_node!r} not found",
                 code="helper_edge_unresolved",
             )
         )
     source_type = _node_port_type(source_node, inbound_edge.from_output, output=True)
     from vibecomfy.schema import socket_types_compatible
 
-    if source_type is not None and not socket_types_compatible(source_type, "STRING"):
+    if source_type is not None and not socket_types_compatible(source_type, value_type):
         raise make_error(
             HelperResolveErrorSpec(
-                f"PrimitiveStringMultiline node {node_id!r} source type {source_type!r} is not STRING",
-                next_action="Connect a STRING-producing source to the multiline primitive.",
+                f"{class_type} node {node_id!r} source type {source_type!r} is not {value_type}",
+                next_action=f"Connect a {value_type}-producing source to the primitive.",
                 code="helper_type_mismatch",
             )
         )
     for edge in _sorted_edges([edge for edge in edges if edge.from_node == node_id]):
         target_node = nodes.get(str(edge.to_node))
         target_type = _node_port_type(target_node, edge.to_input, output=False) if target_node else None
-        if target_type is not None and not socket_types_compatible("STRING", target_type):
+        if target_type is not None and not socket_types_compatible(value_type, target_type):
             raise make_error(
                 HelperResolveErrorSpec(
-                    f"PrimitiveStringMultiline node {node_id!r} target type {target_type!r} is not STRING",
-                    next_action="Connect the multiline primitive to a STRING input.",
+                    f"{class_type} node {node_id!r} target type {target_type!r} is not {value_type}",
+                    next_action=f"Connect the primitive to a {value_type} input.",
                     code="helper_type_mismatch",
                 )
             )

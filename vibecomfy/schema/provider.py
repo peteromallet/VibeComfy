@@ -1648,7 +1648,7 @@ def _schema_from_object_info(class_type: str, info: dict[str, Any]) -> NodeSchem
             required = group_name == "required"
             if isinstance(group, dict):
                 for name, spec in group.items():
-                    parsed_inputs[str(name)] = _parse_input_spec(spec, required=required)
+                    parsed_inputs[str(name)] = _parse_input_spec(spec, required=required, name=str(name))
     inputs = _order_object_info_inputs(parsed_inputs, info)
     outputs = _parse_outputs(info)
     pack = _first_string(info, "pack", "package", "category")
@@ -1811,16 +1811,16 @@ def _schema_from_index_row(row: dict[str, Any]) -> NodeSchema | None:
             for group_name, group in raw_inputs.items():
                 if isinstance(group, dict):
                     for name, spec in group.items():
-                        inputs[str(name)] = _parse_input_spec(spec, required=group_name == "required")
+                        inputs[str(name)] = _parse_input_spec(spec, required=group_name == "required", name=str(name))
         else:
             for name, spec in raw_inputs.items():
-                inputs[str(name)] = _parse_input_spec(spec, required=False)
+                inputs[str(name)] = _parse_input_spec(spec, required=False, name=str(name))
     elif isinstance(raw_inputs, list):
         for item in raw_inputs:
             if isinstance(item, str):
                 inputs[item] = InputSpec(required=False)
             elif isinstance(item, dict) and isinstance(item.get("name"), str):
-                inputs[item["name"]] = _parse_input_spec(item, required=bool(item.get("required", False)))
+                inputs[item["name"]] = _parse_input_spec(item, required=bool(item.get("required", False)), name=item["name"])
     outputs = _parse_index_outputs(row)
     return NodeSchema(
         class_type=class_type,
@@ -1850,7 +1850,30 @@ def _parse_index_outputs(row: dict[str, Any]) -> list[OutputSpec]:
     return []
 
 
-def _parse_input_spec(raw: Any, *, required: bool) -> InputSpec:
+DYNAMIC_COMBO_TYPE = "COMFY_DYNAMICCOMBO_V3"
+
+
+def _dynamic_combo_field_names(option_inputs: Any, prefix: str) -> list[str]:
+    """Every dotted input name an option can contribute, nested combos included."""
+    names: list[str] = []
+    if not isinstance(option_inputs, Mapping):
+        return names
+    for group in ("required", "optional"):
+        rows = option_inputs.get(group)
+        if not isinstance(rows, Mapping):
+            continue
+        for sub_name, sub_raw in rows.items():
+            full = f"{prefix}{sub_name}"
+            names.append(full)
+            sub_attrs = sub_raw[1] if isinstance(sub_raw, (list, tuple)) and len(sub_raw) > 1 else {}
+            if isinstance(sub_raw, (list, tuple)) and sub_raw and sub_raw[0] == DYNAMIC_COMBO_TYPE and isinstance(sub_attrs, Mapping):
+                for option in sub_attrs.get("options") or []:
+                    if isinstance(option, Mapping):
+                        names.extend(_dynamic_combo_field_names(option.get("inputs"), f"{full}."))
+    return names
+
+
+def _parse_input_spec(raw: Any, *, required: bool, name: str | None = None) -> InputSpec:
     typ: Any = None
     attrs: dict[str, Any] = {}
     choices: list[Any] | None = None
@@ -1892,6 +1915,21 @@ def _parse_input_spec(raw: Any, *, required: bool) -> InputSpec:
             if names:
                 dynamic_fields[str(controller_value)] = tuple(dict.fromkeys(names))
 
+    dynamic_options: dict[str, Any] = {}
+    if typ == DYNAMIC_COMBO_TYPE and isinstance(attrs.get("options"), list):
+        for option in attrs["options"]:
+            if isinstance(option, Mapping) and isinstance(option.get("key"), str):
+                inputs = option.get("inputs")
+                dynamic_options[option["key"]] = dict(inputs) if isinstance(inputs, Mapping) else {}
+        if dynamic_options:
+            # The controller is a widget whose value picks an option.
+            choices = list(dynamic_options)
+            if name:
+                for key, option_inputs in dynamic_options.items():
+                    fields = _dynamic_combo_field_names(option_inputs, f"{name}.")
+                    if fields:
+                        dynamic_fields[key] = tuple(dict.fromkeys(fields))
+
     return InputSpec(
         type=str(typ) if typ is not None else None,
         required=required,
@@ -1902,6 +1940,7 @@ def _parse_input_spec(raw: Any, *, required: bool) -> InputSpec:
         unresolved_choices=attrs.get("unresolved_choices") is True,
         asset_kind="image" if attrs.get("image_upload") is True else None,
         dynamic_fields=dynamic_fields,
+        dynamic_options=dynamic_options,
     )
 
 def _parse_outputs(info: dict[str, Any]) -> list[OutputSpec]:

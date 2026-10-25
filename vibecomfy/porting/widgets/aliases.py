@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -259,11 +259,84 @@ def resolve_widget_key_with_provenance(
     )
 
 
-def widget_names_from_schema(class_type: str, schema: Any | None) -> list[str | None]:
+def widget_names_from_schema(
+    class_type: str,
+    schema: Any | None,
+    values: Sequence[Any] | None = None,
+) -> list[str | None]:
+    """Widget names in ``widgets_values`` order.
+
+    With ``values`` (the node's saved widgets_values), a dynamic combo's
+    chosen option contributes its own widgets right after the controller,
+    as dotted names.  A live schema that has dynamic combos wins over the
+    committed table, whose rows predate them (SaveVideo, TextGenerateLTX2Prompt).
+    """
     committed = widget_names_for_class(class_type)
-    if committed is not None:
+    if committed is not None and not _has_dynamic_combo(schema):
         return committed
-    return _input_alias_from_schema(schema)
+    names = _input_alias_from_schema(schema)
+    if values is None or not _has_dynamic_combo(schema):
+        return names
+    return expand_dynamic_combo_names(schema, names, values)
+
+
+def _has_dynamic_combo(schema: Any | None) -> bool:
+    inputs = getattr(schema, "inputs", None)
+    return isinstance(inputs, Mapping) and any(
+        getattr(spec, "dynamic_options", None) for spec in inputs.values()
+    )
+
+
+def expand_dynamic_combo_names(
+    schema: Any | None,
+    names: Sequence[str | None],
+    values: Sequence[Any],
+) -> list[str | None]:
+    """Splice each dynamic combo's chosen-option widget names after it.
+
+    ComfyUI's frontend stores the option key, then that option's widgets
+    (recursively for nested combos), before the node's next widget; the
+    API names them ``<controller>.<field>`` (comfy_api finalize_prefix).
+    """
+    from vibecomfy.schema.provider import DYNAMIC_COMBO_TYPE, _parse_input_spec
+
+    inputs = getattr(schema, "inputs", None)
+    inputs = inputs if isinstance(inputs, Mapping) else {}
+    out: list[str | None] = []
+    position = 0
+
+    def option_names(option_inputs: Any, prefix: str) -> None:
+        nonlocal position
+        if not isinstance(option_inputs, Mapping):
+            return
+        for group in ("required", "optional"):
+            rows = option_inputs.get(group)
+            if not isinstance(rows, Mapping):
+                continue
+            for sub_name, sub_raw in rows.items():
+                full = f"{prefix}{sub_name}"
+                spec = _parse_input_spec(sub_raw, required=group == "required", name=full)
+                if not input_spec_is_literal_widget(spec):
+                    continue
+                out.append(full)
+                value = values[position] if position < len(values) else None
+                position += 1
+                attrs = sub_raw[1] if isinstance(sub_raw, (list, tuple)) and len(sub_raw) > 1 else {}
+                if isinstance(attrs, Mapping) and attrs.get("control_after_generate"):
+                    out.append(f"{prefix}control_after_generate")
+                    position += 1
+                if spec.type == DYNAMIC_COMBO_TYPE:
+                    option_names((spec.dynamic_options or {}).get(value), f"{full}.")
+
+    for name in names:
+        out.append(name)
+        value = values[position] if position < len(values) else None
+        position += 1
+        spec = inputs.get(name) if isinstance(name, str) else None
+        options = getattr(spec, "dynamic_options", None)
+        if options:
+            option_names(options.get(value), f"{name}.")
+    return out
 
 
 def unresolved_widget_aliases(

@@ -1769,7 +1769,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
             # first value when it collides with the linked socket.  Partial UI
             # rosters still fall back to schema evidence for compatibility
             # with UI-only controls such as ``control_after_generate``.
-            schema_widget_names = _schema_input_names(schema_provider, class_type)
+            schema_widget_names = _schema_input_names(schema_provider, class_type, widgets)
             dynamic_ui_names = [
                 name for name in ui_widget_names if name.startswith("values.")
             ]
@@ -3047,9 +3047,17 @@ def _from_api_impl(
     # Keep unresolved schema state actionable at the existing requirements
     # boundary; this is node-local provenance, not a global metadata escape
     # hatch or guessed runtime registry result.
+    # UI-only annotations (MarkdownNote, Note) never reach a server, so they
+    # are not missing: emit drops them, and counting them here made every
+    # ready_template re-emit of a noted workflow fail its semantic digest.
+    # Imported here because the emit package imports ingest.
+    from vibecomfy.porting.emit.emit_constants import UI_ONLY_CLASS_TYPES
+
     missing_nodes = set(str(item) for item in workflow.requirements.missing_nodes)
     for node in workflow.nodes.values():
         source = node.metadata.get("schema_source")
+        if node.class_type in UI_ONLY_CLASS_TYPES:
+            continue
         if isinstance(source, Mapping) and not str(source.get("provider", "") or "").strip():
             missing_nodes.add(node.class_type)
     workflow.requirements.missing_nodes = sorted(missing_nodes)
@@ -3222,9 +3230,13 @@ def _capture_control_after_generate(node: dict[str, Any], class_type: str) -> st
     return None
 
 
-def _schema_input_names(schema_provider: SchemaProvider | None, class_type: str) -> list[str]:
+def _schema_input_names(
+    schema_provider: SchemaProvider | None,
+    class_type: str,
+    values: list[Any] | None = None,
+) -> list[str]:
     schema = schema_for(schema_provider, class_type)
-    names = widget_names_from_schema(class_type, schema)
+    names = widget_names_from_schema(class_type, schema, values)
     return [name if name is not None else f"unused_widget_{index}" for index, name in enumerate(names)]
 
 

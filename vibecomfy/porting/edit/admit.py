@@ -502,7 +502,7 @@ def _validate_schema_payload_structure(payload: Mapping[str, Any], *, label: str
             spec_path = f"{path}.inputs[{input_name!r}]"
             if not isinstance(input_name, str) or not isinstance(spec, Mapping):
                 raise _schema_validation_error(spec_path, "input names/specs are malformed")
-            if set(spec) != {
+            if set(spec) - {"dynamic_options"} != {
                 "type", "required", "default", "choices", "min", "max", "unresolved_choices",
                 "asset_kind", "dynamic_fields",
             }:
@@ -539,6 +539,8 @@ def _validate_schema_payload_structure(payload: Mapping[str, Any], *, label: str
                     spec_path,
                     "dynamic_fields must map strings to lists of strings",
                 )
+            if "dynamic_options" in spec and not isinstance(spec["dynamic_options"], Mapping):
+                raise _schema_validation_error(spec_path, "dynamic_options must be a mapping")
             _validate_json_value(spec.get("default"), path=f"{spec_path}.default")
         for field_name in ("input_order", "widget_input_order"):
             order = raw.get(field_name)
