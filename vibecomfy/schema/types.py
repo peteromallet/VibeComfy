@@ -35,6 +35,9 @@ class InputSpec:
     # follow the controller's value in widgets_values and run as dotted
     # inputs ("format.codec"); dynamic_fields lists every such name.
     dynamic_options: Mapping[str, Any] = field(default_factory=dict)
+    # Seed-like inputs: the UI saves a control mode ("fixed", "randomize"...)
+    # in the next widgets_values slot, which the server never sees.
+    control_after_generate: bool = False
 
 @dataclass(frozen=True)
 class OutputSpec:
@@ -167,6 +170,8 @@ def _input_spec_payload(spec: Any) -> dict[str, Any]:
     dynamic_options = getattr(spec, "dynamic_options", {}) or {}
     if dynamic_options:
         payload["dynamic_options"] = _thaw_jsonable(_freeze_jsonable(dict(dynamic_options)))
+    if getattr(spec, "control_after_generate", False):
+        payload["control_after_generate"] = True
     return payload
 
 
@@ -267,6 +272,7 @@ def node_schema_from_payload(class_type: str, raw: Mapping[str, Any]) -> NodeSch
             dynamic_options=dict(spec.get("dynamic_options"))
             if isinstance(spec.get("dynamic_options"), Mapping)
             else {},
+            control_after_generate=spec.get("control_after_generate") is True,
         )
     raw_outputs = raw.get("outputs")
     outputs = (

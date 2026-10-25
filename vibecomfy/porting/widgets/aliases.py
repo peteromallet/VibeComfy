@@ -37,7 +37,27 @@ def _input_alias_from_schema(schema: Any | None) -> list[str | None]:
     inputs = getattr(schema, "inputs", None)
     if not isinstance(inputs, dict):
         return []
-    return [str(name) for name, spec in inputs.items() if input_spec_is_literal_widget(spec)]
+    return _with_control_slots(
+        (str(name), spec) for name, spec in inputs.items() if input_spec_is_literal_widget(spec)
+    )
+
+
+def _with_control_slots(rows: Any) -> list[str | None]:
+    """Literal widget names, each seed-like input followed by its UI control slot.
+
+    The first slot is ``control_after_generate`` (the name compile strips and
+    import metadata reads); a second seed's is ``<input>.control_after_generate``.
+    """
+    names: list[str | None] = []
+    for name, spec in rows:
+        names.append(name)
+        if getattr(spec, "control_after_generate", False):
+            names.append(
+                "control_after_generate"
+                if "control_after_generate" not in names
+                else f"{name}.control_after_generate"
+            )
+    return names
 
 
 def _schema_from_provider(schema_provider: Any | None, class_type: str) -> Any | None:

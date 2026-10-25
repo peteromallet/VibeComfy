@@ -148,3 +148,28 @@ def test_live_schema_extends_a_stale_prefix_row():
     names = widget_names_from_schema("CreateVideo", _schema("CreateVideo"), [24, 8])
     assert names[:2] == ["fps", "bit_depth"]
     assert widget_names_from_schema("CreateVideo", _schema("CreateVideo"), [24]) == ["fps"]
+
+
+def test_seed_control_slot_from_live_schema_keeps_later_widgets_in_place():
+    # SamplerCustom has no committed row; the UI saves [add_noise, noise_seed,
+    # <control mode>, cfg].  Without the slot, cfg became "randomize".
+    ui = {"nodes": [{"id": 1, "type": "SamplerCustom", "mode": 0, "inputs": [], "outputs": [],
+                     "widgets_values": [True, 123456, "randomize", 6.5]}], "links": []}
+    workflow = from_ui(ui, workflow_id="seed-control", schema_provider=_Provider())
+    node = workflow.nodes["1"]
+    named = {**node.widgets, **node.inputs}
+    assert named["noise_seed"] == 123456 and named["cfg"] == 6.5
+    assert not any(name.startswith("widget_") for name in named)
+    assert node.metadata.get("control_after_generate") == "randomize"
+    assert "control_after_generate" not in workflow.compile("api")["1"]["inputs"]
+
+
+def test_second_seed_control_slot_gets_its_own_name():
+    from vibecomfy.porting.widgets.aliases import _with_control_slots
+    from vibecomfy.schema.types import InputSpec
+
+    seed = InputSpec("INT", control_after_generate=True)
+    rows = [("seed", seed), ("cfg", InputSpec("FLOAT")), ("restart_seed", seed)]
+    assert _with_control_slots(rows) == [
+        "seed", "control_after_generate", "cfg", "restart_seed", "restart_seed.control_after_generate",
+    ]

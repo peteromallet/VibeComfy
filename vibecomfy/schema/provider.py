@@ -1941,6 +1941,7 @@ def _parse_input_spec(raw: Any, *, required: bool, name: str | None = None) -> I
         asset_kind="image" if attrs.get("image_upload") is True else None,
         dynamic_fields=dynamic_fields,
         dynamic_options=dynamic_options,
+        control_after_generate=bool(attrs.get("control_after_generate")),
     )
 
 def _parse_outputs(info: dict[str, Any]) -> list[OutputSpec]:
