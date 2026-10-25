@@ -272,9 +272,19 @@ def widget_names_from_schema(
     committed table, whose rows predate them (SaveVideo, TextGenerateLTX2Prompt).
     """
     committed = widget_names_for_class(class_type)
-    if committed is not None and not _has_dynamic_combo(schema):
-        return committed
     names = _input_alias_from_schema(schema)
+    if committed is not None and not _has_dynamic_combo(schema):
+        # A committed row that is an exact prefix of the live schema's widget
+        # order predates widgets the node has since gained (CreateVideo
+        # ["fps"] before bit_depth/color_space/codec).  When the saved row is
+        # longer than the committed one, the live schema names the rest.
+        if (
+            values is not None
+            and len(committed) < len(values) <= len(names)
+            and list(names[: len(committed)]) == list(committed)
+        ):
+            return names
+        return committed
     if values is None or not _has_dynamic_combo(schema):
         return names
     return expand_dynamic_combo_names(schema, names, values)

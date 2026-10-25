@@ -150,6 +150,88 @@
    "model"
   ]
  },
+ "CreateVideo": {
+  "input": {
+   "optional": {
+    "audio": [
+     "AUDIO",
+     {}
+    ],
+    "bit_depth": [
+     "COMBO",
+     {
+      "default": "auto",
+      "multiselect": false,
+      "options": [
+       "auto",
+       8,
+       10
+      ]
+     }
+    ],
+    "codec": [
+     "COMBO",
+     {
+      "advanced": true,
+      "default": "none",
+      "multiselect": false,
+      "options": [
+       "none",
+       "auto",
+       "h264",
+       "av1"
+      ]
+     }
+    ],
+    "color_space": [
+     "COMBO",
+     {
+      "default": "sRGB",
+      "multiselect": false,
+      "options": [
+       "sRGB",
+       "HDR",
+       "HDR PQ"
+      ]
+     }
+    ]
+   },
+   "required": {
+    "fps": [
+     "FLOAT",
+     {
+      "default": 30.0,
+      "max": 120.0,
+      "min": 1.0,
+      "step": 1.0
+     }
+    ],
+    "images": [
+     "IMAGE",
+     {}
+    ]
+   }
+  },
+  "input_order": {
+   "optional": [
+    "audio",
+    "bit_depth",
+    "color_space",
+    "codec"
+   ],
+   "required": [
+    "images",
+    "fps"
+   ]
+  },
+  "name": "CreateVideo",
+  "output": [
+   "VIDEO"
+  ],
+  "output_name": [
+   "VIDEO"
+  ]
+ },
  "SaveVideo": {
   "input": {
    "hidden": {

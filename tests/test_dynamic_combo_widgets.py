@@ -140,3 +140,11 @@ def test_linked_primitive_known_type_mismatch_fails_closed():
 
     with pytest.raises(HelperResolveError, match="not FLOAT"):
         resolve_helpers(nodes, edges, {})
+
+
+def test_live_schema_extends_a_stale_prefix_row():
+    # WIDGET_SCHEMA has CreateVideo ["fps"]; ComfyUI 0.42 added bit_depth,
+    # color_space and codec after it, and the LTX-2.5 template saves [24, 8].
+    names = widget_names_from_schema("CreateVideo", _schema("CreateVideo"), [24, 8])
+    assert names[:2] == ["fps", "bit_depth"]
+    assert widget_names_from_schema("CreateVideo", _schema("CreateVideo"), [24]) == ["fps"]
