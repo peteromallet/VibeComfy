@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
+from vibecomfy.errors import CheckoutRequiredError
 from vibecomfy.handles import Handle
 from vibecomfy.registry.ready_template import apply_ready_template_policy, bind_input, bind_output, ready_node, ready_workflow
 from vibecomfy.utils import find_repo_root
@@ -2053,13 +2054,16 @@ def _derive_template_id(template_id: str | None, source_path: Path | None) -> st
     if source_path is not None:
         try:
             return source_path.resolve().relative_to(_repo_root() / "ready_templates").with_suffix("").as_posix()
-        except ValueError:
+        except (ValueError, CheckoutRequiredError):
             return source_path.stem
     return "ready_template"
 
 
 def _coverage_manifest_row(template_id: str) -> dict[str, Any]:
-    path = _repo_root() / "ready_templates/sources" / "manifests" / "coverage.json"
+    try:
+        path = _repo_root() / "ready_templates/sources" / "manifests" / "coverage.json"
+    except CheckoutRequiredError:
+        return {}  # an installed (wheel) VibeComfy ships no corpus manifest, like a missing file
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -2117,6 +2121,13 @@ def _derive_source_workflow(
 def _project_version() -> str:
     try:
         data = tomllib.loads((_repo_root() / "pyproject.toml").read_text(encoding="utf-8"))
+    except CheckoutRequiredError:
+        from importlib import metadata
+
+        try:
+            return metadata.version("vibecomfy")  # an installed wheel: its own metadata
+        except metadata.PackageNotFoundError:
+            return "0"
     except (OSError, tomllib.TOMLDecodeError):
         return "0"
     project = data.get("project") if isinstance(data, Mapping) else None
@@ -2126,7 +2137,8 @@ def _project_version() -> str:
 
 def _comfy_core_metadata() -> dict[str, Any]:
     try:
-        data = json.loads((_repo_root() / "vibecomfy" / "comfy_metadata.json").read_text(encoding="utf-8"))
+        # Package data: the same file in a checkout and in an installed wheel.
+        data = json.loads((Path(__file__).resolve().parent / "comfy_metadata.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     if not isinstance(data, Mapping):
