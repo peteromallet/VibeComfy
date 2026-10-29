@@ -169,7 +169,7 @@ def _install_wheel_in_venv(wheel: Path, venv_dir: Path) -> Path:
 
 
 @pytest.mark.timeout(180)
-def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
+def test_wheel_isolated_import_cli_plugin_and_packaged_corpus(
     installed_wheel: tuple[Path, Path],
     tmp_path: Path,
 ) -> None:
@@ -241,7 +241,8 @@ def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
         [
             str(venv_python),
             "-c",
-            "from vibecomfy import load_workflow_any; load_workflow_any('image/z_image')",
+            "from vibecomfy import load_workflow_any; wf = load_workflow_any('image/z_image'); "
+            "assert wf.nodes; print(wf.metadata['ready_template'])",
         ],
         cwd=tmp_path,
         env=env,
@@ -249,9 +250,76 @@ def test_wheel_isolated_import_cli_plugin_and_corpus_failure(
         text=True,
         timeout=120,
     )
-    assert corpus.returncode != 0
-    assert "git checkout" in corpus.stderr
-    assert "pip install -e ." in corpus.stderr
+    assert corpus.returncode == 0, corpus.stdout + corpus.stderr
+    assert corpus.stdout.strip() == "image/z_image"
+
+
+@pytest.mark.timeout(180)
+def test_wheel_ready_template_load_and_path_trust_from_neutral_cwd(
+    installed_wheel: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    venv_python, _wheel = installed_wheel
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    script = r"""
+from pathlib import Path
+import sys
+import vibecomfy
+from vibecomfy.errors import CheckoutRequiredError
+from vibecomfy.registry.ready import repo_ready_template_root, workflow_from_ready
+from vibecomfy.scratchpad_loader import load_scratchpad
+from vibecomfy.security.gate import CapabilityFenceError, GateContext, set_gate_context
+from vibecomfy.security.loader_provenance import _provenance_for_path
+from vibecomfy.utils import find_repo_root
+
+package = Path(vibecomfy.__file__).resolve().parent
+assert package.is_relative_to(Path(sys.prefix).resolve())
+try:
+    find_repo_root()
+except CheckoutRequiredError:
+    pass
+else:
+    raise AssertionError("wheel unexpectedly found a checkout")
+root = repo_ready_template_root().resolve()
+assert root.is_relative_to(package)
+set_gate_context(GateContext(non_interactive=True, assume_yes=False, audit=[]))
+workflow = workflow_from_ready("image/z_image")
+assert workflow.nodes
+assert workflow.metadata["ready_template"] == "image/z_image"
+assert _provenance_for_path(root / "image" / "z_image.py") == "agent_authored"
+
+# Cwd-shaped checkout paths are never promoted to trusted roots.
+for directory in (Path.cwd() / "ready_templates", Path.cwd() / "out" / "scratchpads"):
+    directory.mkdir(parents=True)
+    path = directory / "evil.py"
+    path.write_text("from pathlib import Path\nPath('executed').write_text('yes')\n")
+    assert _provenance_for_path(path) == "untrusted_source"
+    try:
+        load_scratchpad(path)
+    except CapabilityFenceError as exc:
+        assert exc.detail["provenance"] == "untrusted_source"
+    else:
+        raise AssertionError("external path passed the headless gate")
+assert not Path("executed").exists()
+
+outside = Path.cwd() / "ready_templates" / "evil.py"
+escape = root / "escape_probe.py"
+escape.symlink_to(outside)
+try:
+    assert _provenance_for_path(escape) == "untrusted_source"
+    assert _provenance_for_path(root / ".." / ".." / ".." / outside.name) == "untrusted_source"
+finally:
+    escape.unlink()
+"""
+    result = subprocess.run(
+        [str(venv_python), "-c", script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_wheel_does_not_trust_spoofed_ancestor_pyproject(

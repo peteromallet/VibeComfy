@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from vibecomfy.errors import CheckoutRequiredError
 from vibecomfy.security.provenance import Provenance
 from vibecomfy.utils import find_repo_root
 
@@ -23,13 +24,25 @@ from vibecomfy.utils import find_repo_root
 def _trusted_roots() -> list[Path]:
     """Resolved trusted-directory roots for exec_module loaders.
 
-    Returns the resolved ``repo_root / "out" / "scratchpads"`` and
-    ``repo_root / "ready_templates"`` directories. Both are resolved with
-    ``Path.resolve()`` so a later ``is_relative_to`` comparison catches
-    traversal / symlink escapes.
+    Trust checkout scratchpads and ready templates, or the installed package's
+    ready templates when there is no checkout. Resolve roots before comparison
+    to catch traversal and symlink escapes.
     """
-    repo = find_repo_root()
     roots: list[Path] = []
+    try:
+        repo = find_repo_root()
+    except CheckoutRequiredError:
+        # A wheel ships templates inside the package; scratchpads remain
+        # checkout-only. Never let a symlinked corpus root widen this trust.
+        package = Path(__file__).resolve().parents[1]
+        try:
+            packaged = (package / "ready_templates").resolve()
+            if packaged.is_relative_to(package) and packaged.is_dir():
+                roots.append(packaged)
+        except OSError:
+            pass
+        return roots
+
     for candidate in (repo / "out" / "scratchpads", repo / "ready_templates"):
         try:
             roots.append(candidate.resolve())

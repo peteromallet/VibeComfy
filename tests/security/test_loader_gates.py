@@ -112,6 +112,26 @@ def test_builtin_ready_template_paths_are_agent_authored():
     assert lp._provenance_for_path(paths[0]) == "agent_authored"
 
 
+def test_wheel_corpus_root_symlink_outside_package_is_untrusted(tmp_path, monkeypatch):
+    from vibecomfy.errors import CheckoutRequiredError
+
+    package = tmp_path / "site-packages" / "vibecomfy"
+    (package / "security").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    attacker = outside / "attacker.py"
+    attacker.write_text("# untrusted\n")
+    (package / "ready_templates").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(lp, "__file__", str(package / "security" / "loader_provenance.py"))
+
+    def no_checkout():
+        raise CheckoutRequiredError("no checkout")
+
+    monkeypatch.setattr(lp, "find_repo_root", no_checkout)
+    assert lp._provenance_for_path(package / "ready_templates" / "attacker.py") == "untrusted_source"
+    assert lp._provenance_for_path(attacker) == "untrusted_source"
+
+
 # ---- scratchpad_loader gate --------------------------------------------------
 
 
