@@ -25,7 +25,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 try:
     import fcntl
@@ -3169,6 +3169,28 @@ def _bundle_publish_lock(path: Path):
         os.close(fd)
 
 
+def _fsync_dir(directory: Path) -> None:
+    """Flush directory updates where directory descriptors are supported."""
+    if os.name == "nt":
+        return
+    directory_fd = os.open(str(directory), os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _durable_replace(
+    source: Path, destination: Path, *, on_replaced: Callable[[], None] | None = None
+) -> None:
+    """Atomically replace a file and flush its parent directory on POSIX."""
+    os.replace(source, destination)
+    # Record the visible change before fsync, which can itself fail.
+    if on_replaced is not None:
+        on_replaced()
+    _fsync_dir(destination.parent)
+
+
 def _write_publish_transaction(path: Path, record: Mapping[str, Any]) -> None:
     """Durably replace the small publication journal under the pair lock."""
     journal = _publish_transaction_path(path)
@@ -3183,16 +3205,8 @@ def _write_publish_transaction(path: Path, record: Mapping[str, Any]) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        # ``os.rename`` is atomic on the supported local filesystems and is
-        # intentionally separate from the visible pair's ``os.replace`` so
-        # fault-injection of member publication still exercises the pair.
-        os.rename(temporary, journal)
+        _durable_replace(temporary, journal)
         temporary = None
-        directory_fd = os.open(str(path.parent), os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
     finally:
         if temporary is not None:
             try:
@@ -3603,8 +3617,9 @@ def _atomic_publish_pair_unlocked(
                     "members": transaction_members,
                 },
             )
-            os.replace(temporary, destination)
-            replaced.add(destination)
+            _durable_replace(
+                temporary, destination, on_replaced=lambda: replaced.add(destination)
+            )
         _write_publish_transaction(
             path,
             {

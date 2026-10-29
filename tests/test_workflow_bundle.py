@@ -1196,6 +1196,8 @@ def test_atomic_pair_rolls_back_after_second_replacement(tmp_path: Path, monkeyp
 
     def fail_once(source: str, destination: str) -> None:
         nonlocal calls
+        if str(destination).endswith(".vibe.transaction.json"):
+            return original_replace(source, destination)
         calls += 1
         if calls == 2:
             raise OSError("injected replacement failure")
@@ -1920,6 +1922,8 @@ def test_staged_sidecar_corruption_and_first_replace_failure_preserve_old_pair(
 
     def fail_first(source, destination):
         nonlocal calls
+        if str(destination).endswith(".vibe.transaction.json"):
+            return original_replace(source, destination)
         calls += 1
         if calls == 1:
             raise OSError("injected first replacement failure")
@@ -1946,6 +1950,8 @@ def test_rollback_failure_is_explicitly_reported(
 
     def fail_publication_and_rollback(source, destination):
         nonlocal calls
+        if str(destination).endswith(".vibe.transaction.json"):
+            return original_replace(source, destination)
         calls += 1
         if calls == 2 or calls == 3:
             raise OSError("injected rollback failure")
