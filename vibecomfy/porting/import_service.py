@@ -68,6 +68,7 @@ def import_workflow_bytes(
     workflow_id: str,
     schema_provider: Any | None = None,
     source_provenance: Mapping[str, Any] | None = None,
+    infer_inputs: bool = False,
 ) -> ImportArtifacts:
     """Convert source JSON bytes into an inspectable canonical workflow pair.
 
@@ -148,6 +149,46 @@ def import_workflow_bytes(
         embedded_source_provenance = extract_provenance(loaded.raw_workflow or decoded).to_json()
         conversion_provenance = dict(analysis.provenance)
         conversion_provenance["source_provenance"] = embedded_source_provenance
+        input_ambiguities: dict[str, list[dict[str, str]]] = {}
+        if infer_inputs:
+            from vibecomfy.porting.emit.emit_ready import _infer_public_input_bindings, _resolved_field_values
+            from vibecomfy.workflow import VibeInput
+
+            edges_in: dict[str, list[Any]] = {}
+            for edge in loaded.workflow.edges:
+                edges_in.setdefault(str(edge.to_node), []).append(edge)
+            existing = loaded.workflow.inputs
+            candidates: dict[str, set[tuple[str, str]]] = {}
+            for node_id, node in loaded.workflow.nodes.items():
+                for candidate in _infer_public_input_bindings({node_id: node}, edges_in, connected_prompt_roles=True):
+                    candidates.setdefault(candidate.name, set()).add((candidate.node_id, candidate.field))
+            # UI/API ingest has already registered convenience controls such
+            # as the first prompt or seed.  Only serialized Vibe envelopes
+            # carry explicitly authored public input descriptors.
+            authored = decoded.get("inputs", {}) if isinstance(decoded.get("inputs"), dict) else {}
+            input_ambiguities = {
+                name: [{"node": node, "field": field} for node, field in sorted(targets)]
+                for name, targets in candidates.items() if len(targets) > 1 and name not in authored
+            }
+            for name in input_ambiguities:
+                existing.pop(name, None)
+            inferred = _infer_public_input_bindings(
+                loaded.workflow.nodes, edges_in,
+                reserved_names={name for name, item in existing.items() for name in (name, *item.aliases)},
+                reserved_targets={(str(item.node_id), item.field) for item in existing.values()},
+                connected_prompt_roles=True,
+            )
+            for binding in inferred:
+                if binding.name in input_ambiguities:
+                    continue
+                value = _resolved_field_values(loaded.workflow.nodes[binding.node_id])[binding.field]
+                existing[binding.name] = VibeInput(
+                    name=binding.name, node_id=binding.node_id, field=binding.field,
+                    # LoadImage.image is a file-picker socket (often CHOICE),
+                    # while its semantic media type is image, not an IMAGE socket.
+                    value=value, default=value, type=None if binding.media_semantics == "image" else binding.type, required=binding.required,
+                    aliases=binding.aliases, media_semantics=binding.media_semantics,
+                )
         registered_inputs = {
             str(name): (str(item.node_id), str(item.field))
             for name, item in loaded.workflow.inputs.items()
@@ -178,6 +219,11 @@ def import_workflow_bytes(
             else None
         )
         emitted_workflow = _build_emitted_workflow_from_text(converted.text)
+        # The legacy converter also infers prompt/seed controls.  It cannot
+        # know which roles were ambiguous in the source, so remove those
+        # speculative controls before the canonical bundle is emitted.
+        for name in input_ambiguities:
+            emitted_workflow.inputs.pop(name, None)
         bundle = emit_bundle_with_candidate(
             emitted_workflow,
             python_path,
@@ -250,6 +296,8 @@ def import_workflow_bytes(
             "diagnostics": diagnostics,
             "provenance": conversion_provenance,
         }
+        if infer_inputs:
+            origin_report["input_ambiguities"] = input_ambiguities
         # Assert the service's byte-level custody promise before returning.
         if members["source.json"] != _sha256(source_bytes):
             raise AssertionError("origin report source digest does not match source bytes")

@@ -200,6 +200,7 @@ def _infer_public_input_bindings(
     *,
     reserved_names: set[str] | None = None,
     reserved_targets: set[tuple[str, str]] | None = None,
+    connected_prompt_roles: bool = False,
 ) -> list[_PublicInputBinding]:
     bindings: list[_PublicInputBinding] = []
     used_names: set[str] = set(reserved_names or set())
@@ -249,6 +250,13 @@ def _infer_public_input_bindings(
 
     prompt_candidate: tuple[str, str] | None = None
     negative_candidate: tuple[str, str] | None = None
+    output_roles: dict[str, set[str]] = {}
+    if connected_prompt_roles:
+        for edges in edges_in.values():
+            for edge in edges:
+                role = str(getattr(edge, "to_input", "")).lower()
+                if role in {"positive", "negative"}:
+                    output_roles.setdefault(str(getattr(edge, "from_node", "")), set()).add(role)
     for node_id, node in sorted(workflow_nodes.items(), key=lambda item: _id_sort_key(item[0])):
         fields = _resolved_field_values(node)
         class_type = str(getattr(node, "class_type", ""))
@@ -259,10 +267,13 @@ def _infer_public_input_bindings(
                 metadata = getattr(node, "metadata", {})
                 semantic = metadata.get("semantic", metadata.get("semantic_metadata", {})) if isinstance(metadata, Mapping) else {}
                 role = semantic.get("role", semantic.get("prompt_role")) if isinstance(semantic, Mapping) else None
+                roles = output_roles.get(str(node_id), set())
+                if not role and len(roles) == 1:
+                    role = next(iter(roles))
                 target_available = (str(node_id), "text") not in used_targets
                 if isinstance(role, str) and "negative" in role.lower() and target_available:
                     negative_candidate = negative_candidate or (str(node_id), "text")
-                elif value.strip() and target_available:
+                elif (value.strip() or (connected_prompt_roles and role == "positive")) and target_available:
                     prompt_candidate = prompt_candidate or (str(node_id), "text")
         primitive_value = _resolve_graph_field_get_string(fields.get("value"), workflow_nodes)
         if class_type in {"PrimitiveStringMultiline", "PrimitiveString"} and isinstance(
@@ -270,8 +281,11 @@ def _infer_public_input_bindings(
             str,
         ) and primitive_value.strip() and (str(node_id), "value") not in used_targets:
             prompt_candidate = prompt_candidate or (str(node_id), "value")
-        if class_type == "LoadImage" and "image" in fields:
-            add("image", str(node_id), "image", type="IMAGE", required=True, aliases=("input_image",), media_semantics="image")
+        from vibecomfy.entries import media_loader_kind
+        for field in fields:
+            media = media_loader_kind(class_type, field)
+            if media and (media == "image" or isinstance(fields[field], str)):
+                add(media, str(node_id), field, type="IMAGE" if media == "image" else None, required=True, aliases=(f"input_{media}",), media_semantics=media)
         if (
             "seed" in fields
             and isinstance(fields["seed"], int)
@@ -296,6 +310,8 @@ def _infer_public_input_bindings(
             add("frames", str(node_id), "frames", type="INT")
         if "fps" in fields and isinstance(fields["fps"], (int, float)):
             add("fps", str(node_id), "fps", type="FLOAT")
+        if class_type == "VHS_VideoCombine" and "frame_rate" in fields and isinstance(fields["frame_rate"], (int, float)):
+            add("fps", str(node_id), "frame_rate", type="FLOAT")
 
     if prompt_candidate is not None:
         add("prompt", prompt_candidate[0], prompt_candidate[1], type="STRING", required=True, media_semantics="text")

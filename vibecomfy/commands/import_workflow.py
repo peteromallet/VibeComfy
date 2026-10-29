@@ -106,6 +106,25 @@ def _emit(payload: dict[str, Any], *, json_output: bool) -> None:
 
 def _cmd_import(args: argparse.Namespace) -> int:
     source_reference = str(args.source)
+    if getattr(args, "as_entry", False):
+        if args.project or args.out or args.dry_run:
+            _emit({"status": "error", "message": "--as-entry cannot be combined with --project, --out, or --dry-run"}, json_output=args.json)
+            return 1
+        try:
+            from vibecomfy.entries import import_as_entry
+
+            entry_id = args.as_entry if isinstance(args.as_entry, str) else _folder_name(Path(source_reference))
+            entry = import_as_entry(source_reference, entry_id)
+        except Exception as exc:
+            _emit({"status": "error", "message": f"{type(exc).__name__}: {exc}"}, json_output=args.json)
+            return 1
+        if args.json:
+            print(json.dumps({"status": "ok", "entry": entry}, indent=2, sort_keys=True))
+        else:
+            print(f"Imported entry {entry['id']} ({entry['kind']}: {', '.join(entry['modes'])})")
+            print(f"  bundle: {entry['bundle']}")
+            print("  Review entry.json needs and binds before running.")
+        return 0
     from vibecomfy.porting.hivemind_source import (
         evidence_id_for_reference,
         fetch_hivemind_source,
@@ -428,6 +447,7 @@ def register(subparsers) -> None:
         help="Source local JSON file, public HTTP(S) URL, or Hivemind reference (optionally /revisions/<revision>).",
     )
     parser.add_argument("--out", help="Destination directory (defaults to ./workflows/<source-name>/).")
+    parser.add_argument("--as-entry", nargs="?", const=True, metavar="ID", help="Import a local workflow into the user entries directory and draft its manifest (optionally supply an ID).")
     parser.add_argument("--project", help="Opt into recording this import as an Astrid workflow origin.")
     parser.add_argument("--dry-run", action="store_true", help="Build a preview without writing files or contacting Astrid.")
     parser.add_argument("--json", action="store_true", help="Print a machine-readable result.")
