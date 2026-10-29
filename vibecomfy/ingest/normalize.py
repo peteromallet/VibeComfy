@@ -1759,7 +1759,10 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                     continue
                 inputs[str(name)] = value
                 input_provenance[str(name)] = "widget"
-        elif isinstance(widgets, list):
+        elif isinstance(widgets, list) and not (
+            isinstance(node.get("widgets_values_named"), Mapping)
+            and len(node["widgets_values_named"]) == len(widgets)
+        ):
             # LiteGraph's per-input ``widget.name`` roster is direct evidence
             # for the serialized ``widgets_values`` row.  Prefer it whenever
             # it covers the row exactly.  A schema may lead with a custom
@@ -1800,6 +1803,34 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 name = _unique_input_name(used_names, str(name))
                 inputs[name] = value
                 input_provenance[str(name)] = "widget"
+        # Native subgraph materialization can place an instance's named
+        # boundary value on either a widget or an ordinary socket.  Links
+        # remain authoritative, while these named values override the inner
+        # node's authored widget defaults without guessing list positions.
+        boundary_values = node.get("_native_subgraph_boundary_values")
+        named_sources = (node.get("widgets_values_named"), boundary_values)
+        for named_widgets in named_sources:
+            if named_widgets is boundary_values and isinstance(boundary_values, Mapping):
+                # The native edge targets the socket name; remove the widget
+                # alias before applying an effective literal or linked edge.
+                for item in raw_input_items:
+                    if not isinstance(item, Mapping) or item.get("name") not in boundary_values:
+                        continue
+                    widget = item.get("widget")
+                    widget_name = widget.get("name") if isinstance(widget, Mapping) else None
+                    if isinstance(widget_name, str) and widget_name != item.get("name"):
+                        inputs.pop(widget_name, None)
+                        input_provenance.pop(widget_name, None)
+            if not isinstance(named_widgets, Mapping):
+                continue
+            linked_names = {
+                item.get("name") for item in raw_input_items
+                if isinstance(item, dict) and item.get("link") is not None
+            }
+            for name, value in named_widgets.items():
+                if isinstance(name, str) and name not in linked_names:
+                    inputs[name] = deepcopy(value)
+                    input_provenance[name] = "widget"
         api_node = {
             "class_type": class_type,
             "inputs": inputs,

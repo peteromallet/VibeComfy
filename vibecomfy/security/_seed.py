@@ -19,6 +19,7 @@ import re
 OUTPUT_NODE_NAMES: frozenset[str] = frozenset(
     {
         "SaveImage",
+        "SaveImageAdvanced",
         "PreviewImage",
         "SaveAnimatedWEBP",
         "SaveWEBM",

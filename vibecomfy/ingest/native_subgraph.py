@@ -253,6 +253,7 @@ def expand_native_subgraphs(
         if not isinstance(outer_values, list):
             _fail("outer instance has malformed widgets_values")
         widget_boundaries: list[tuple[str, list[tuple[dict[str, Any], int]]]] = []
+        boundary_sockets: dict[str, list[tuple[dict[str, Any], str]]] = {}
         boundary_targets: dict[int, tuple[str, int]] = {}
         boundary_names: dict[Any, str] = {}
         for entry in boundary_inputs:
@@ -265,18 +266,48 @@ def expand_native_subgraphs(
                 _fail(f"ambiguous native input mapping for {entry.get('name')!r}")
             for lid in entry["linkIds"]:
                 boundary_names[lid] = str(entry["name"])
+            name = str(entry["name"])
+            if name in boundary_sockets:
+                _fail(f"duplicate native input name {name!r}")
+            boundary_sockets[name] = []
             widgets: list[tuple[dict[str, Any], int]] = []
             for lid, edge in zip(entry["linkIds"], edges):
                 assert edge is not None
                 target = out_nodes.get(edge[3])
                 if target is None:
                     _fail("native input target is missing")
+                if edge[4] < 0 or edge[4] >= len(_node_inputs(target)):
+                    _fail("native input points at a missing target socket")
+                socket = _node_inputs(target)[edge[4]]
+                socket_name = socket.get("name")
+                if not isinstance(socket_name, str) or not socket_name:
+                    _fail("native input target has no socket name")
+                boundary_sockets[name].append((target, socket_name))
                 boundary_targets[lid] = (edge[3], edge[4])
-                widget = _node_inputs(target)[edge[4]].get("widget")
+                widget = socket.get("widget")
                 if isinstance(widget, Mapping) and isinstance(widget.get("name"), str):
-                    info = _widget_target(definition, edge, out_nodes)
-                    assert info is not None
-                    widgets.append(info)
+                    widget_name = widget["name"]
+                    if widget_name != socket_name and any(
+                        other is not socket and (
+                            other.get("name") == widget_name
+                            or (isinstance(other.get("widget"), Mapping)
+                                and other["widget"].get("name") == widget_name)
+                        )
+                        for other in _node_inputs(target)
+                    ):
+                        _fail(f"ambiguous widget alias {widget_name!r} on node {target.get('id')}")
+                    if not original.get("widgets_values_named"):
+                        info = _widget_target(definition, edge, out_nodes)
+                        assert info is not None
+                        widgets.append(info)
+                    else:
+                        # Named instance values do not require guessing the
+                        # target widget list position from a partial roster.
+                        widgets.append((target, -1))
+            outer = outer_inputs.get(name)
+            source_link = outer.get("link") if outer is not None else None
+            if source_link is not None and source_link not in root_by_id:
+                _fail(f"outer link {source_link!r} is missing")
             if widgets:
                 # A public input can fan out to multiple widget and ordinary
                 # sockets (for example a model filename feeding three
@@ -285,18 +316,22 @@ def expand_native_subgraphs(
                 # that these are one public value with fan-out, not competing
                 # boundary meanings.
                 widget_boundaries.append((str(entry["name"]), widgets))
-                name = str(entry["name"])
-                outer = outer_inputs.get(name)
-                source_link = outer.get("link") if outer is not None else None
-                if source_link is not None and source_link not in root_by_id:
-                    _fail(f"outer link {source_link!r} is missing")
         # Older native serializations carry effective proxy values on the
         # instance.  Newer ones omit that redundant list and retain the
         # authored values on the inner widget nodes.  Consume the instance
         # roster only when it is complete and therefore positionally
         # authoritative; an absent roster is an explicit "use inner values"
         # case, not a missing-widget error.
-        if outer_values:
+        named_values = original.get("widgets_values_named")
+        if "widgets_values_named" in original and not isinstance(named_values, Mapping):
+            _fail("outer instance has malformed widgets_values_named")
+        fallback_named: dict[str, Any] = {}
+        need_positional = bool(outer_values) and (
+            not named_values
+            or len(named_values) < len(outer_values)
+            or any(name not in named_values for name, _ in widget_boundaries)
+        )
+        if need_positional:
             proxy_widgets = (
                 original.get("properties", {}).get("proxyWidgets")
                 if isinstance(original.get("properties"), Mapping)
@@ -324,21 +359,69 @@ def expand_native_subgraphs(
             if proxy_positions:
                 if len(outer_values) <= max(proxy_positions.values()):
                     _fail("ambiguous native widget value roster")
-                assignments = [
-                    (outer_values[proxy_positions[name]], widgets)
-                    for name, widgets in widget_boundaries
-                    if name in proxy_positions
-                ]
-                if len(assignments) != len(widget_boundaries):
+                if any(name not in proxy_positions for name, _ in widget_boundaries):
                     _fail("native widget value has no declared proxy identity")
+                widget_map = dict(widget_boundaries)
+                assignments = [
+                    (name, outer_values[proxy_positions[name]], widget_map.get(name, []))
+                    for name in boundary_sockets if name in proxy_positions
+                ]
             else:
-                if len(outer_values) != len(widget_boundaries):
+                if len(outer_values) == len(widget_boundaries):
+                    assignments = [
+                        (name, value, widgets)
+                        for value, (name, widgets) in zip(outer_values, widget_boundaries)
+                    ]
+                elif len(outer_values) == len(boundary_sockets):
+                    widget_map = dict(widget_boundaries)
+                    assignments = [
+                        (name, value, widget_map.get(name, []))
+                        for name, value in zip(boundary_sockets, outer_values)
+                    ]
+                else:
                     _fail("ambiguous native widget value roster")
-                assignments = list(zip(outer_values, (widgets for _name, widgets in widget_boundaries)))
-            for value, widgets in assignments:
+            for name, value, widgets in assignments:
+                if named_values:
+                    # A partial named roster overlays the proven positional
+                    # roster. Carry fallback values by name rather than
+                    # guessing positions in each target's widget list.
+                    fallback_named[name] = value
+                    continue
                 for target_node, target_pos in widgets:
                     target_values = door_setdefault_widgets_values(target_node, [])
                     target_values[target_pos] = deepcopy(value)
+                for target_node, socket_name in boundary_sockets[name]:
+                    if any(target_node is widget_node for widget_node, _ in widgets):
+                        # The widget list already carries this assignment.
+                        socket = next((s for s in _node_inputs(target_node) if s.get("name") == socket_name), {})
+                        if isinstance(socket.get("widget"), Mapping):
+                            target_named = target_node.get("widgets_values_named")
+                            widget_name = socket["widget"].get("name")
+                            if isinstance(target_named, dict) and widget_name in target_named:
+                                target_named[widget_name] = deepcopy(value)
+                            if widget_name == socket_name:
+                                continue
+                    target_named = target_node.setdefault("_native_subgraph_boundary_values", {})
+                    if not isinstance(target_named, dict):
+                        _fail("target has malformed native boundary values")
+                    target_named[socket_name] = deepcopy(value)
+        # In nested instances an outer expansion may have supplied additional
+        # boundary values; those take precedence over the instance's own
+        # authored named/positional values.
+        inherited_values = original.get("_native_subgraph_boundary_values", {})
+        if not isinstance(inherited_values, Mapping):
+            _fail("outer instance has malformed native boundary values")
+        effective_named = fallback_named
+        effective_named.update(named_values or {})
+        effective_named.update(inherited_values)
+        for name, sockets in boundary_sockets.items():
+            if name not in effective_named:
+                continue
+            for target_node, socket_name in sockets:
+                target_named = target_node.setdefault("_native_subgraph_boundary_values", {})
+                if not isinstance(target_named, dict):
+                    _fail("target has malformed native boundary values")
+                target_named[socket_name] = deepcopy(effective_named[name])
         # Rewrite all ordinary inner links and boundary inputs.
         for edge in native:
             if edge[3] != "-20":

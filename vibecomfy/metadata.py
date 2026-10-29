@@ -11,6 +11,7 @@ STEP_KEYS = {"steps"}
 MODEL_KEYS = {"ckpt_name", "model_name", "unet_name"}
 OUTPUT_NODE_NAMES = {
     "SaveImage",
+    "SaveImageAdvanced",
     "PreviewImage",
     "SaveAnimatedWEBP",
     "SaveWEBM",

@@ -824,6 +824,14 @@ def _ready_requirements(workflow: VibeWorkflow) -> dict[str, Any]:
         "models": models,
         "custom_nodes": list(workflow.requirements.custom_nodes),
     }
+    # These are part of the semantic requirements contract even when the
+    # graph is only a candidate and dependencies have not been resolved.
+    for key in ("missing_models", "missing_nodes", "unsupported"):
+        values = list(getattr(workflow.requirements, key, ()) or ())
+        if values:
+            requirements[key] = values
+    if workflow.requirements.runtime is not None:
+        requirements["runtime"] = workflow.requirements.runtime.to_dict()
     ir_refs = list(getattr(workflow.requirements, "custom_node_refs", ()) or ())
     if ir_refs:
         requirements["custom_node_refs"] = copy.deepcopy(ir_refs)
