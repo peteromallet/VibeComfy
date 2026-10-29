@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -63,6 +64,48 @@ def test_import_succeeds_with_windows_directory_open_denied(tmp_path, monkeypatc
     assert artifacts.source_bytes == source
     assert artifacts.python_bytes and artifacts.companion_bytes
     assert json.loads(artifacts.companion_bytes)["format_version"] == 2
+    assert directory_opens == []
+    assert file_fsyncs
+
+
+def test_windows_interrupted_publication_recovers_original_pair(tmp_path, monkeypatch):
+    directory_opens, file_fsyncs = _windows_os(monkeypatch)
+    path = tmp_path / "recover.py"
+    companion = path.with_suffix(".vibe.json")
+    originals = {path: b"old python", companion: b"old companion"}
+    members = []
+    staged_paths = []
+    backup_paths = []
+    for destination, original in originals.items():
+        staged = tmp_path / f".{destination.name}.stage"
+        backup = tmp_path / f".{destination.name}.bak"
+        staged.write_bytes(b"new content")
+        backup.write_bytes(original)
+        destination.write_bytes(original)
+        staged_paths.append(staged)
+        backup_paths.append(backup)
+        members.append({
+            "destination": str(destination.resolve()),
+            "staged": str(staged.resolve()),
+            "staged_digest": hashlib.sha256(b"new content").hexdigest(),
+            "original_exists": True,
+            "original_digest": hashlib.sha256(original).hexdigest(),
+            "backup": str(backup.resolve()),
+        })
+
+    # Simulate a crash after the first member became visible.
+    os.replace(staged_paths[0], path)
+    bundle._write_publish_transaction(path, {
+        "version": bundle._TRANSACTION_VERSION,
+        "transaction_id": "interrupted-windows-test",
+        "state": "publishing",
+        "members": members,
+    })
+    bundle._recover_publish_transaction(path)
+
+    assert {item: item.read_bytes() for item in originals} == originals
+    assert not bundle._publish_transaction_path(path).exists()
+    assert not any(item.exists() for item in (*staged_paths, *backup_paths))
     assert directory_opens == []
     assert file_fsyncs
 
