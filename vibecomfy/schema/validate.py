@@ -340,11 +340,19 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
                     # fetched. A request for a not-yet-installed asset is a
                     # warning (the value is still structurally valid), not a
                     # hard schema error. Semantic enums stay hard errors below.
+                    strict_target_choices = bool(
+                        getattr(provider, "requires_fresh_target", False)
+                    )
                     issues.append(
                         ValidationIssue(
                             "value_not_in_enum",
-                            f"Node {node_id} ({class_type}) input {name} value {_truncate(value)} is not among the locally installed asset choices.",
-                            severity="warning",
+                            (
+                                f"Node {node_id} ({class_type}) input {name} value {_truncate(value)} "
+                                "is not among the target ComfyUI asset choices."
+                                if strict_target_choices
+                                else f"Node {node_id} ({class_type}) input {name} value {_truncate(value)} is not among the locally installed asset choices."
+                            ),
+                            severity="error" if strict_target_choices else "warning",
                             detail={
                                 "node_id": str(node_id),
                                 "class_type": class_type,

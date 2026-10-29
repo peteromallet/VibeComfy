@@ -264,6 +264,22 @@ def test_dynamic_file_picker_choices_do_not_reject_task_inputs() -> None:
     )
 
 
+def test_fresh_target_rejects_corrupted_model_choice_before_queue() -> None:
+    provider = FakeSchemaProvider(
+        {"VAELoader": _schema("VAELoader", {"vae_name": InputSpec("STRING", choices=[r"FLUX1\ae.safetensors"])})}
+    )
+    provider.requires_fresh_target = True
+    workflow = _workflow(VibeNode("3", "VAELoader", inputs={"vae_name": "FLUX1\x07e.safetensors"}))
+
+    report = workflow.validate(schema_provider=provider)
+
+    assert not report.ok
+    issue = next(issue for issue in report.issues if issue.code == "value_not_in_enum")
+    assert issue.severity == "error"
+    assert issue.detail["input"] == "vae_name"
+    assert issue.detail["choice_scope"] == "environment_asset"
+
+
 def test_normalization_proposal_drops_unknown_inputs_and_coerces_portable_choices() -> None:
     provider = FakeSchemaProvider(
         {
