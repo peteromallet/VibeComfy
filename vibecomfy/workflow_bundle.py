@@ -2466,17 +2466,49 @@ def _approval_preconditions(
                 raise WorkflowBundleError("workflow model reference is malformed")
             if subdir is not None and not isinstance(subdir, str):
                 raise WorkflowBundleError("workflow model reference subdir is malformed")
-            normalized_value = value.replace("\\", "/")
-            normalized_subdir = (subdir or "").replace("\\", "/")
-            key = (normalized_value, normalized_subdir)
+            # Comfy picker names are opaque target values, including literal
+            # backslashes.  Local path compatibility is handled only below,
+            # after the target-reference decision has been made.
+            key = (value, subdir or "")
             if key not in seen:
                 seen.add(key)
-                references.append({"value": normalized_value, "subdir": normalized_subdir})
+                references.append({"value": value, "subdir": subdir or ""})
 
+        from vibecomfy.schema.provider import TargetSchemaProvider
+
+        target_models = (
+            isinstance(schema_provider, TargetSchemaProvider)
+            and schema_provider.model_availability == "target"
+        )
+        target_references: set[tuple[str, str]] = set()
         for reference in _referenced_model_values(workflow):
             if not isinstance(reference, Mapping):
                 raise WorkflowBundleError("workflow model reference is malformed")
             add_reference(reference.get("value"), reference.get("subdir", ""))
+            if target_models:
+                value = reference["value"]
+                if not schema_provider.target_model_reference(
+                    reference["class_type"], reference["field"], value
+                ):
+                    raise WorkflowBundleError(
+                        f"model picker value is not advertised by the selected target: "
+                        f"{reference['class_type']}.{reference['field']}={value!r}"
+                    )
+                target_references.add((value, reference.get("subdir", "")))
+                # requirements.models may declare only a filename.  It is
+                # covered only when that exact name has a graph picker witness.
+                target_references.add((value, ""))
+                approval_diagnostics.append({
+                    "code": "target_model_reference",
+                    "status": "available_on_target",
+                    "node_id": str(reference["node_id"]),
+                    "class_type": reference["class_type"],
+                    "field": reference["field"],
+                    "value": value,
+                    "target_server_url": schema_provider.server_url,
+                    "target_schema_digest": schema_provider._object_info_digest,
+                    "model_bytes_status": "unverified_target_inventory",
+                })
 
         if isinstance(metadata, Mapping) and "model_assets" in metadata:
             assets = metadata["model_assets"]
@@ -2525,6 +2557,12 @@ def _approval_preconditions(
         for reference in references:
             value = reference.get("value")
             subdir = reference.get("subdir")
+            if (value, subdir or "") in target_references:
+                continue
+            # Preserve historical managed/local filesystem reconciliation;
+            # these normalized paths never become target model names.
+            value = str(value).replace("\\", "/")
+            subdir = str(subdir or "").replace("\\", "/")
             entry = resolve_model_entry(value, registry=registry, subdir=subdir or None)
             if entry is None:
                 local_asset = authored_asset(str(value), str(subdir or ""))

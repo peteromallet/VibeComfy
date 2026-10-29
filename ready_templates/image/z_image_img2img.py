@@ -10,19 +10,25 @@ from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, ImageScale, KSample
 CLIP_NAME = 'qwen_3_4b.safetensors'
 DEFAULT_PROMPT = 'A compact red cube on a clean white tabletop, product-photo lighting.'
 DEFAULT_SEED = 770044821593082
-GUIDE_STRENGTH = 0.0
-UNET_NAME = 'z_image_bf16.safetensors'
+GUIDE_STRENGTH = 1.0
+UNET_NAME = 'z_image_turbo_bf16.safetensors'
 VAE_NAME = 'ae.safetensors'
 
 
 MODELS = {
-    'diffusion_model': ModelAsset(url='https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_bf16.safetensors', subdir='diffusion_models'),
+    'diffusion_model': ModelAsset(url='https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors', subdir='diffusion_models'),
     'text_encoder': ModelAsset(url='https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors', subdir='text_encoders'),
     'vae': ModelAsset(url='https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors', subdir='vae'),
 }
 
 
 PUBLIC_INPUT_METADATA = {
+    'diffusion_model': InputSpec(node='2', field='unet_name', default=UNET_NAME, type='CHOICE'),
+    'text_encoder': InputSpec(node='3', field='clip_name', default=CLIP_NAME, type='CHOICE'),
+    'vae': InputSpec(node='4', field='vae_name', default=VAE_NAME, type='CHOICE'),
+    'steps': InputSpec(node='10', field='steps', default=8, type='INT'),
+    'guidance': InputSpec(node='10', field='cfg', default=GUIDE_STRENGTH, type='FLOAT'),
+    'strength': InputSpec(node='10', field='denoise', default=0.7, type='FLOAT'),
     'image': InputSpec(node='1', field='image', default='image_z_image_img2img_input.png', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
     'width': InputSpec(node='8', field='width', default=1024, type='INT'),
     'height': InputSpec(node='8', field='height', default=1024, type='INT'),
@@ -33,9 +39,10 @@ PUBLIC_INPUT_METADATA = {
 READY_METADATA = ReadyMetadata.build(
     capability='image_to_image',
     inputs=PUBLIC_INPUT_METADATA,
+    unbound_inputs={},
     models=MODELS,
     approach='Z-Image Turbo img2img via VAEEncode init latent and KSampler denoise strength',
-    runtime_note='Intended to match Reigh z_image_turbo_i2i production semantics.',
+    runtime_note='Adapts official Turbo sampling to a VAEEncode init latent with denoise 0.7.',
     smoke_resolution='1024x1024',
     provenance={'source_workflow': 'ready_templates/image/z_image_img2img.py'},
 )
@@ -48,7 +55,7 @@ def build() -> VibeWorkflow:
     image, _ = LoadImage(_id='1', image='image_z_image_img2img_input.png')
 
     # Loaders
-    unetloader = UNETLoader(_id='2', unet_name=UNET_NAME)
+    unetloader = UNETLoader(_id='2', unet_name=UNET_NAME, weight_dtype='default')
     cliploader = CLIPLoader(_id='3', clip_name=CLIP_NAME, type='lumina2')
     vaeloader = VAELoader(_id='4', vae_name=VAE_NAME)
     modelsamplingauraflow = ModelSamplingAuraFlow(_id='5', shift=3, model=unetloader)
@@ -72,9 +79,10 @@ def build() -> VibeWorkflow:
     ksampler = KSampler(
         _id='10',
         seed=DEFAULT_SEED,
-        steps=12,
+        steps=8,
         cfg=GUIDE_STRENGTH,
         sampler_name='res_multistep',
+        scheduler='simple',
         denoise=0.7,
         latent_image=vaeencode,
         model=modelsamplingauraflow,

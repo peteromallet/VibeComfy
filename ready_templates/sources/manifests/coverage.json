@@ -34,6 +34,17 @@
       "ready_template": "image/z_image"
     },
     {
+      "id": "z_image_turbo",
+      "path": "ready_templates/sources/official/image/z_image_turbo.json",
+      "source": "Comfy-Org/workflow_templates (pinned existing live_agentic_corpus fixture)",
+      "model_family": "z-image-turbo",
+      "task": "text_to_image",
+      "media": "image",
+      "coverage_tier": "supplemental",
+      "ready_template": "image/z_image_turbo",
+      "approach": "Official Turbo diffusion weights with eight steps, CFG 1, res_multistep/simple sampling"
+    },
+    {
       "id": "wan_t2v",
       "path": "ready_templates/sources/official/video/wan_t2v.json",
       "source": "Comfy-Org/workflow_templates",

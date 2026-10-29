@@ -8,7 +8,7 @@ import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
 from vibecomfy.comfy_command import has_comfyui_runtime
 from vibecomfy.runtime.client import ComfyClient
@@ -1533,10 +1533,69 @@ class TargetSchemaProvider(RuntimeSchemaProvider):
         server_url: str,
         cache_dir: str | Path = "out/cache",
         log_path: str | Path | None = None,
+        model_availability: Literal["local", "target"] = "local",
     ) -> None:
         if not isinstance(server_url, str) or not server_url.strip():
             raise ValueError("server_url must be a non-empty string")
+        if model_availability not in {"local", "target"}:
+            raise ValueError("model_availability must be 'local' or 'target'")
+        self.model_availability = model_availability
+        self._external_capture = False
+        self._refresh_object_info: Callable[[], dict[str, Any]] | None = None
         super().__init__(server_url=server_url, cache_dir=cache_dir, log_path=log_path)
+
+    @classmethod
+    def from_object_info(
+        cls,
+        data: dict[str, Any],
+        *,
+        server_url: str,
+        model_availability: Literal["local", "target"] = "local",
+        refresh_object_info: Callable[[], dict[str, Any]] | None = None,
+    ) -> "TargetSchemaProvider":
+        """Bind a caller's fresh target capture without querying another client.
+
+        The caller owns transport and target selection.  Detaching the capture
+        prevents later inventory mutation from changing this approval witness.
+        Target model availability is an explicit opt-in: it proves only that
+        the server advertises the exact picker value, never local model bytes.
+        Existing managed callers keep the default local model checks.  Supply
+        ``refresh_object_info`` using that same target transport when executing:
+        final reconciliation refreshes this capture immediately before queueing.
+        A capture without a callback can compile but cannot queue stale evidence.
+        """
+        if refresh_object_info is not None and not callable(refresh_object_info):
+            raise ValueError("refresh_object_info must be callable")
+        provider = cls(server_url=server_url, model_availability=model_availability)
+        provider._external_capture = True
+        provider._refresh_object_info = refresh_object_info
+        provider._accept_external_capture(data)
+        return provider
+
+    def _accept_external_capture(self, data: dict[str, Any]) -> dict[str, Any]:
+        snapshot = json.loads(json.dumps(data, allow_nan=False))
+        validate_object_info_payload_shape(snapshot)
+        self._set_object_info(snapshot)
+        self._active_server_url = self.server_url
+        self._object_info_digest = object_info_payload_checksum(snapshot)
+        return self._object_info
+
+    def target_model_reference(self, class_type: str, field: str, value: str) -> bool:
+        """Check one exact model-picker name in this target's captured schema."""
+        if self.model_availability != "target":
+            return False
+        info = self.object_info().get(class_type)
+        inputs = info.get("input") if isinstance(info, Mapping) else None
+        if not isinstance(inputs, Mapping):
+            return False
+        for section in ("required", "optional"):
+            fields = inputs.get(section)
+            spec = fields.get(field) if isinstance(fields, Mapping) else None
+            if isinstance(spec, (list, tuple)) and spec:
+                choices = spec[0]
+                if isinstance(choices, (list, tuple)) and value in choices:
+                    return True
+        return False
 
     def object_info(self) -> dict[str, Any]:
         if self._object_info is None:
@@ -1562,6 +1621,16 @@ class TargetSchemaProvider(RuntimeSchemaProvider):
         return self._object_info
 
     async def object_info_async(self) -> dict[str, Any]:
+        if self._external_capture:
+            if self._refresh_object_info is None:
+                raise SchemaProviderError(
+                    None,
+                    RuntimeError("external target capture requires refresh_object_info before queueing"),
+                )
+            # Keep the caller's selected target transport authoritative.  In
+            # particular, never fall back to a generic client for an attested
+            # endpoint whose transport may own authorization and route policy.
+            return self._accept_external_capture(self._refresh_object_info())
         async with comfy_server(server_url=self.server_url, log_path=self.log_path) as active_url:
             data = await ComfyClient(active_url).object_info()
         return await self._accept_live_object_info(data, active_url)

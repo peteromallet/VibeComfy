@@ -3,7 +3,7 @@
   "generated_from": "repo-only ready template discovery",
   "include_rule": "find ready_templates -type f -name '*.py' ! -name '_*' | sort",
   "exclude_rule": "exclude __init__.py and files whose basename starts with '_' to match vibecomfy.registry.ready._template_paths",
-  "template_count": 64,
+  "template_count": 65,
   "templates": [
     {
       "id": "audio/ace_step_1_5_t2a_song",
@@ -1708,6 +1708,114 @@
       "model_count": 3,
       "public_inputs": [
         {
+          "name": "diffusion_model",
+          "target": {
+            "node_id": "2",
+            "field": "unet_name"
+          },
+          "node_id": "2",
+          "field": "unet_name",
+          "value": "z_image_turbo_bf16.safetensors",
+          "type": "CHOICE",
+          "default": "z_image_turbo_bf16.safetensors",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "text_encoder",
+          "target": {
+            "node_id": "3",
+            "field": "clip_name"
+          },
+          "node_id": "3",
+          "field": "clip_name",
+          "value": "qwen_3_4b.safetensors",
+          "type": "CHOICE",
+          "default": "qwen_3_4b.safetensors",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "vae",
+          "target": {
+            "node_id": "4",
+            "field": "vae_name"
+          },
+          "node_id": "4",
+          "field": "vae_name",
+          "value": "ae.safetensors",
+          "type": "CHOICE",
+          "default": "ae.safetensors",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "steps",
+          "target": {
+            "node_id": "10",
+            "field": "steps"
+          },
+          "node_id": "10",
+          "field": "steps",
+          "value": 8,
+          "type": "INT",
+          "default": 8,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "guidance",
+          "target": {
+            "node_id": "10",
+            "field": "cfg"
+          },
+          "node_id": "10",
+          "field": "cfg",
+          "value": 1.0,
+          "type": "FLOAT",
+          "default": 1.0,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "strength",
+          "target": {
+            "node_id": "10",
+            "field": "denoise"
+          },
+          "node_id": "10",
+          "field": "denoise",
+          "value": 0.7,
+          "type": "FLOAT",
+          "default": 0.7,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
           "name": "image",
           "target": {
             "node_id": "1",
@@ -1825,25 +1933,7 @@
           },
           "node_id": "2",
           "field": "unet_name",
-          "value": "z_image_bf16.safetensors",
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "finalize_metadata"
-        },
-        {
-          "name": "steps",
-          "target": {
-            "node_id": "10",
-            "field": "steps"
-          },
-          "node_id": "10",
-          "field": "steps",
-          "value": 12,
+          "value": "z_image_turbo_bf16.safetensors",
           "type": null,
           "default": null,
           "required": false,
@@ -1907,6 +1997,269 @@
       },
       "source_workflow": "ready_templates/image/z_image_img2img.py",
       "source_sha256": null
+    },
+    {
+      "id": "image/z_image_turbo",
+      "path": "ready_templates/image/z_image_turbo.py",
+      "source_scope": "repo",
+      "indexed": true,
+      "capability": "image",
+      "coverage_tier": "supplemental",
+      "custom_nodes": [],
+      "model_count": 3,
+      "public_inputs": [
+        {
+          "name": "diffusion_model",
+          "target": {
+            "node_id": "1",
+            "field": "unet_name"
+          },
+          "node_id": "1",
+          "field": "unet_name",
+          "value": "z_image_turbo_bf16.safetensors",
+          "type": "CHOICE",
+          "default": "z_image_turbo_bf16.safetensors",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "text_encoder",
+          "target": {
+            "node_id": "2",
+            "field": "clip_name"
+          },
+          "node_id": "2",
+          "field": "clip_name",
+          "value": "qwen_3_4b.safetensors",
+          "type": "CHOICE",
+          "default": "qwen_3_4b.safetensors",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "vae",
+          "target": {
+            "node_id": "3",
+            "field": "vae_name"
+          },
+          "node_id": "3",
+          "field": "vae_name",
+          "value": "ae.safetensors",
+          "type": "CHOICE",
+          "default": "ae.safetensors",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "5",
+            "field": "text"
+          },
+          "node_id": "5",
+          "field": "text",
+          "value": "A compact red cube on a clean white tabletop, product-photo lighting.",
+          "type": "STRING",
+          "default": "A compact red cube on a clean white tabletop, product-photo lighting.",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "negative_prompt",
+          "target": {
+            "node_id": "6",
+            "field": "text"
+          },
+          "node_id": "6",
+          "field": "text",
+          "value": "",
+          "type": "STRING",
+          "default": "",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "width",
+          "target": {
+            "node_id": "7",
+            "field": "width"
+          },
+          "node_id": "7",
+          "field": "width",
+          "value": 1024,
+          "type": "INT",
+          "default": 1024,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "height",
+          "target": {
+            "node_id": "7",
+            "field": "height"
+          },
+          "node_id": "7",
+          "field": "height",
+          "value": 1024,
+          "type": "INT",
+          "default": 1024,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "8",
+            "field": "seed"
+          },
+          "node_id": "8",
+          "field": "seed",
+          "value": 0,
+          "type": "INT",
+          "default": 0,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "steps",
+          "target": {
+            "node_id": "8",
+            "field": "steps"
+          },
+          "node_id": "8",
+          "field": "steps",
+          "value": 8,
+          "type": "INT",
+          "default": 8,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "guidance",
+          "target": {
+            "node_id": "8",
+            "field": "cfg"
+          },
+          "node_id": "8",
+          "field": "cfg",
+          "value": 1.0,
+          "type": "FLOAT",
+          "default": 1.0,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "1",
+            "field": "unet_name"
+          },
+          "node_id": "1",
+          "field": "unet_name",
+          "value": "z_image_turbo_bf16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
+        }
+      ],
+      "public_outputs": [
+        {
+          "name": "image",
+          "node_id": "10",
+          "output_type": "SaveImage",
+          "artifact_kind": "image",
+          "mime_type": "image/png",
+          "filename_prefix": "z-image-turbo",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        }
+      ],
+      "contract_shape": "workflow_runtime_contract.v1.public_descriptors.v2",
+      "artifact_expectations": [
+        {
+          "name": "image",
+          "node_id": "10",
+          "output_type": "SaveImage",
+          "artifact_kind": "image",
+          "mime_type": "image/png",
+          "filename_prefix": "z-image-turbo",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        }
+      ],
+      "static_diagnostics": [
+        {
+          "code": "static_dynamic_value",
+          "severity": "warning",
+          "message": "finalize has dynamic 'output_node'"
+        }
+      ],
+      "public_input_status": "declared",
+      "public_output_status": "declared",
+      "custom_node_count": 0,
+      "strict_ready_diagnostic_counts": {},
+      "readiness_class": "ready",
+      "marker": "unmarked",
+      "app_active": false,
+      "blocked": false,
+      "reference": false,
+      "supplemental": true,
+      "vibecomfy_version": "2.8.0",
+      "comfy_core": {
+        "commit": "unknown",
+        "status": "unavailable",
+        "tested_at": "2026-07-09T09:32:35.945439+00:00",
+        "version": "unknown"
+      },
+      "source_workflow": "ready_templates/sources/official/image/z_image_turbo.json",
+      "source_sha256": "fd880c78bba7a771d624cd0224a85f5e9b2e000323d285133999fe663a7dbd3e"
     },
     {
       "id": "smoke/empty_image_red",
