@@ -244,9 +244,9 @@ def _allocate_run_dir(
 
 
 def _bind_downloaded_lifecycle_artifacts(
-    artifacts: list[dict[str, Any]], local_root: Path
+    artifacts: list[dict[str, Any]], local_root: Path, *, download_source: str = "runpod_lifecycle"
 ) -> int:
-    """Attach safe local paths to artifacts pulled by the lifecycle adapter."""
+    """Attach safe local paths to attributed artifacts pulled by a transport."""
     root = local_root.resolve(strict=False)
     bound = 0
     for artifact in artifacts:
@@ -268,7 +268,7 @@ def _bind_downloaded_lifecycle_artifacts(
             if inside_root and candidate.is_file():
                 artifact["path"] = str(candidate)
                 artifact["downloaded_path"] = str(candidate)
-                artifact["download_source"] = "runpod_lifecycle"
+                artifact["download_source"] = download_source
                 bound += 1
                 break
     return bound
@@ -445,7 +445,20 @@ async def run(
     runtime_target: Mapping[str, Any] | None = None,
     dependency_report: Mapping[str, Any] | None = None,
     run_context: RunContext | None = None,
+    server_client: Any | None = None,
+    artifact_client: Any | None = None,
 ) -> RunResult:
+    if server_client is not None and (
+        server_url is None
+        or getattr(server_client, "server_url", None) != server_url.rstrip("/")
+    ):
+        raise WorkflowBundleError("server client must be bound to the selected server_url")
+    if artifact_client is not None and (
+        server_url is None
+        or getattr(artifact_client, "server_url", None) != server_url.rstrip("/")
+        or not callable(getattr(artifact_client, "download_artifacts", None))
+    ):
+        raise WorkflowBundleError("artifact client must be bound to the selected server_url")
     if not isinstance(record, ApprovedProjectionRecord) or not isinstance(bundle, WorkflowBundle):
         raise WorkflowBundleError("runtime run requires an ApprovedProjectionRecord and WorkflowBundle")
     if bundle.is_unresolved and any(
@@ -469,6 +482,8 @@ async def run(
     if isinstance(runtime_target, Mapping):
         candidate = runtime_target.get("_runpod_lifecycle_adapter")
         if candidate is not None:
+            if artifact_client is not None:
+                raise WorkflowBundleError("artifact client cannot replace a RunPod lifecycle adapter")
             if not callable(getattr(candidate, "attach", None)):
                 raise WorkflowBundleError("bound RunPod lifecycle adapter is invalid")
             lifecycle_adapter = candidate
@@ -726,7 +741,10 @@ async def run(
             phase = "queue"
             try:
                 queued = (
-                    await queue_server_prompt(record, bundle, client=ComfyClient(active_url))
+                    await queue_server_prompt(
+                        record, bundle,
+                        client=server_client if server_client is not None else ComfyClient(active_url),
+                    )
                 ).queued
             except asyncio.TimeoutError:
                 raise
@@ -747,7 +765,10 @@ async def run(
             )
             queue_acceptance = {"status": "accepted", "prompt_id": prompt_id}
             phase = "history"
-            history = await _wait_for_server_history(active_url, prompt_id, config=resolved_config)
+            history_kwargs = {"config": resolved_config}
+            if server_client is not None:
+                history_kwargs["client"] = server_client
+            history = await _wait_for_server_history(active_url, prompt_id, **history_kwargs)
             output_verification = _validate_declared_output_contract(workflow, history, prompt_id)
             # Keep terminal status/error decoding authoritative even when the
             # declared-sink filter below selects a subset of history outputs.
@@ -769,6 +790,47 @@ async def run(
                 "artifact_paths": list(outputs),
             })
             write_attempt_json(run_dir, attempt_bundle)
+            if artifact_client is not None:
+                # A caller-selected external transport retrieves only artifacts
+                # attributed by the accepted prompt. Keep the canonical runner's
+                # verification and completion receipt; no lifecycle is acquired.
+                phase = "retrieval"
+                local_root = run_dir / "downloaded-artifacts"
+                retrieval: dict[str, Any] = {"status": "failed"}
+                try:
+                    retrieved = await artifact_client.download_artifacts(local_root=local_root)
+                    if not isinstance(retrieved, Mapping) or retrieved.get("status") != "retrieved":
+                        raise ValueError("artifact client did not retrieve the accepted outputs")
+                    retrieval = dict(retrieved)
+                    retrieved_root = Path(str(retrieval.get("local_root")))
+                    if retrieved_root.resolve() != local_root.resolve():
+                        raise ValueError("artifact client returned a different custody root")
+                    if _bind_downloaded_lifecycle_artifacts(
+                        artifacts, retrieved_root, download_source="external_http",
+                    ) < len(artifacts):
+                        raise ValueError("artifact client did not retrieve every accepted output")
+                except Exception as exc:
+                    retrieval = {
+                        **retrieval, "status": "failed",
+                        "code": "external_artifact_retrieval_failed", "detail": str(exc),
+                    }
+                    attempt_bundle["artifact_retrieval"] = retrieval
+                    write_attempt_json(run_dir, attempt_bundle)
+                    error = RuntimeNodeError(
+                        f"External server artifact retrieval failed after generation was accepted: {exc}",
+                        next_action="check the selected target's /view endpoint and retry retrieval",
+                    )
+                    error.diagnostics = [dict(retrieval)]
+                    raise _delivery_failure(
+                        error, output_verification=output_verification,
+                        artifacts=artifacts, retrieval=retrieval,
+                    ) from exc
+                attempt_bundle["artifact_retrieval"] = retrieval
+                attempt_bundle["artifacts"] = [dict(item) for item in artifacts]
+                attempt_bundle["local_artifact_paths"] = [
+                    item["path"] for item in artifacts if item.get("path")
+                ]
+                write_attempt_json(run_dir, attempt_bundle)
             if lifecycle_adapter is not None:
                 phase = "retrieval"
                 lifecycle_details = dict(lifecycle_details or {})
@@ -994,6 +1056,8 @@ def run_sync(
     runtime_target: Mapping[str, Any] | None = None,
     dependency_report: Mapping[str, Any] | None = None,
     run_context: RunContext | None = None,
+    server_client: Any | None = None,
+    artifact_client: Any | None = None,
 ) -> RunResult:
     kwargs = {
         "server_url": server_url,
@@ -1016,6 +1080,10 @@ def run_sync(
         kwargs["dependency_report"] = dependency_report
     if run_context is not None:
         kwargs["run_context"] = run_context
+    if server_client is not None:
+        kwargs["server_client"] = server_client
+    if artifact_client is not None:
+        kwargs["artifact_client"] = artifact_client
     return asyncio.run(run(record, bundle, **kwargs))
 
 async def run_embedded(

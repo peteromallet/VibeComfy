@@ -1688,7 +1688,11 @@ def _finalize_impl(
             if isinstance(item, Mapping)
             and str(item.get("name", item.get("filename", ""))) in current_names
         ]
-    requirements = _requirements_with_models(requirements, derived_model_assets)
+    # A canonical companion already carries the complete model witness,
+    # refreshed above from the current picker values. Partial download metadata
+    # must not erase filename-only requirements of an attached target.
+    if external_custody is None or not isinstance(requirements, Mapping) or "models" not in requirements:
+        requirements = _requirements_with_models(requirements, derived_model_assets)
     if canonical_custody is None or wf.nodes:
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=PendingDeprecationWarning)

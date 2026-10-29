@@ -3998,6 +3998,7 @@ async def _wait_for_server_history(
     prompt_id: str | None,
     *,
     config: SessionConfig | None,
+    client: Any | None = None,
 ) -> dict[str, Any]:
     if not prompt_id:
         raise QueueError(
@@ -4022,7 +4023,7 @@ async def _wait_for_server_history(
         allow_zero=True,
     )
     deadline = time.monotonic() + timeout_sec
-    client = ComfyClient(server_url)
+    client = client if client is not None else ComfyClient(server_url)
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
