@@ -112,6 +112,39 @@ def _sample_workflow() -> VibeWorkflow:
     return workflow
 
 
+def test_explicit_provenance_has_stable_source_position_and_preserves_metadata() -> None:
+    marker = {"format_version": 2, "generation_id": "generation-witness", "custody_digest": "custody-witness"}
+    inherited = {"operation": "imported", "origin_uri": "urn:inherited"}
+    explicit = {"operation": "authored", "origin_uri": "urn:explicit", "tool_versions": {"fixture": "1"}}
+    note = {"witness": "retained content"}
+    sources = []
+    for keys in (("provenance", "source_bundle"), ("source_bundle", "provenance")):
+        workflow = VibeWorkflow("stable-provenance", WorkflowSource("stable-provenance"))
+        values = {"provenance": inherited, "source_bundle": marker}
+        workflow.metadata = {"author_note": note, **{key: values[key] for key in keys}}
+        sources.append(emit_canonical_python(workflow, provenance=explicit, external_custody=True))
+        assert workflow.metadata["provenance"] == inherited
+
+    assert sources[0].encode("utf-8") == sources[1].encode("utf-8")
+
+    def metadata_values(source: str) -> dict[str, Any]:
+        call = next(
+            statement.value for statement in ast.parse(source).body
+            if isinstance(statement, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "READY_METADATA" for target in statement.targets)
+        )
+        return {keyword.arg: ast.literal_eval(keyword.value) for keyword in call.keywords}
+
+    metadata = metadata_values(sources[0])
+    assert metadata["provenance"] == explicit
+    assert metadata["source_bundle"] == marker
+    assert metadata["author_note"] == note
+    inherited_metadata = metadata_values(emit_canonical_python(workflow, external_custody=True))
+    assert inherited_metadata["provenance"] == inherited
+    assert inherited_metadata["source_bundle"] == marker
+    assert inherited_metadata["author_note"] == note
+
+
 def test_canonical_emitter_restricted_round_trip_is_the_same_ir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

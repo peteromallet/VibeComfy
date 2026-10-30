@@ -82,6 +82,40 @@ def test_reemitting_a_loaded_pair_is_byte_deterministic(tmp_path: Path) -> None:
     assert (first_dir / "workflow.vibe.json").read_bytes() == (second_dir / "workflow.vibe.json").read_bytes()
 
 
+def test_repeated_fresh_authored_emission_is_byte_deterministic(tmp_path: Path) -> None:
+    """First-build normalization and the existing-pair path emit the same bytes."""
+    from vibecomfy.templates import node
+
+    path = tmp_path / "workflow.py"
+    sources = []
+    companions = []
+    bundles = []
+    for _ in range(3):
+        workflow = _workflow("fresh-deterministic-pair")
+        node(workflow, "Integer", _uid="integer-node", value=7)
+        bundles.append(emit_bundle(workflow, path, Provenance.AGENT_AUTHORED))
+        sources.append(path.read_bytes())
+        companions.append(path.with_suffix(".vibe.json").read_bytes())
+
+    assert sources[0] == sources[1] == sources[2]
+    assert companions[0] == companions[1] == companions[2]
+    assert bundles[0].semantic_digest == bundles[1].semantic_digest == bundles[2].semantic_digest
+    assert bundles[0].revision_id == bundles[1].revision_id == bundles[2].revision_id
+    metadata_call = next(
+        statement.value for statement in ast.parse(sources[0]).body
+        if isinstance(statement, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "READY_METADATA" for target in statement.targets)
+    )
+    metadata = {keyword.arg: ast.literal_eval(keyword.value) for keyword in metadata_call.keywords}
+    sidecar = bundles[0].ui_sidecar
+    assert metadata["provenance"] == {"operation": "authored"}
+    assert metadata["source_bundle"] == {
+        "format_version": 2,
+        "generation_id": sidecar["bind"]["generation_id"],
+        "custody_digest": sidecar["bind"]["custody_digest"],
+    }
+
+
 def test_reemitting_a_loaded_pair_preserves_runtime_requirements(tmp_path: Path) -> None:
     workflow = _nonempty_workflow("runtime-reemit")
     workflow.requirements.runtime = RuntimeRequirements.from_dict({

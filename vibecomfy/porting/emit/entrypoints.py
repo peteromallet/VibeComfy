@@ -77,7 +77,12 @@ def emit_canonical_python(
             "canonical workflow variants must be declared in VibeWorkflow.variants; "
             "dynamic apply_overrides patches are not a semantic source"
         )
-    metadata = dict(getattr(workflow, "metadata", {}) or {})
+    # Reserve the explicit provenance slot before merging inherited metadata.
+    # First-build normalization can already carry provenance, while a fresh
+    # workflow replacing an existing pair may not. Both must emit the same
+    # keyword order; the assignment below still gives the caller precedence.
+    metadata = {"provenance": dict(provenance)} if provenance is not None else {}
+    metadata.update(dict(getattr(workflow, "metadata", {}) or {}))
     metadata.update(dict(ready_metadata or {}))
     metadata["ready_template"] = source_id
     metadata.setdefault("workflow_template", source_id.rsplit("/", 1)[-1])
