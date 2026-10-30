@@ -264,6 +264,75 @@ def test_dynamic_file_picker_choices_do_not_reject_task_inputs() -> None:
     )
 
 
+@pytest.fixture
+def mask_loader_provider() -> FakeSchemaProvider:
+    return FakeSchemaProvider(
+        {
+            "LoadImageMask": _schema(
+                "LoadImageMask",
+                {
+                    "image": InputSpec("STRING", required=True, choices=["previous-mask.png"]),
+                    "channel": InputSpec("STRING", required=True, choices=["alpha", "red", "green", "blue"]),
+                },
+            )
+        }
+    )
+
+
+def test_dynamic_mask_file_picker_accepts_staged_filename(mask_loader_provider: FakeSchemaProvider) -> None:
+    workflow = _workflow(
+        VibeNode(
+            "1",
+            "LoadImageMask",
+            inputs={"image": "734d36bcf731f840d97608673210e2a68-resolved-mask.png", "channel": "alpha"},
+        )
+    )
+
+    report = workflow.validate(schema_provider=mask_loader_provider)
+
+    assert report.ok
+    assert not report.issues
+
+
+def test_dynamic_mask_file_picker_rejects_invalid_channel(mask_loader_provider: FakeSchemaProvider) -> None:
+    workflow = _workflow(
+        VibeNode(
+            "1",
+            "LoadImageMask",
+            inputs={"image": "734d36bcf731f840d97608673210e2a68-resolved-mask.png", "channel": "invalid"},
+        )
+    )
+
+    report = workflow.validate(schema_provider=mask_loader_provider)
+
+    assert not report.ok
+    assert len(report.issues) == 1
+    issue = report.issues[0]
+    assert issue.code == "value_not_in_enum"
+    assert issue.severity == "error"
+    assert issue.detail["class_type"] == "LoadImageMask"
+    assert issue.detail["input"] == "channel"
+    assert issue.detail["value"] == "'invalid'"
+
+
+def test_unrelated_image_enum_rejects_unlisted_filename() -> None:
+    provider = FakeSchemaProvider(
+        {"OtherImageLoader": _schema("OtherImageLoader", {"image": InputSpec("STRING", choices=["previous.png"])})}
+    )
+    workflow = _workflow(VibeNode("1", "OtherImageLoader", inputs={"image": "unlisted.png"}))
+
+    report = workflow.validate(schema_provider=provider)
+
+    assert not report.ok
+    assert len(report.issues) == 1
+    issue = report.issues[0]
+    assert issue.code == "value_not_in_enum"
+    assert issue.severity == "error"
+    assert issue.detail["class_type"] == "OtherImageLoader"
+    assert issue.detail["input"] == "image"
+    assert issue.detail["value"] == "'unlisted.png'"
+
+
 def test_normalization_proposal_drops_unknown_inputs_and_coerces_portable_choices() -> None:
     provider = FakeSchemaProvider(
         {

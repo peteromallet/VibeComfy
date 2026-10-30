@@ -1387,6 +1387,7 @@ def _is_dynamic_file_choice(class_type: str, input_name: str) -> bool:
 
     return (class_type, input_name) in {
         ("LoadImage", "image"),
+        ("LoadImageMask", "image"),
         ("LoadVideo", "video"),
         ("LoadVideo", "file"),
         ("VHS_LoadVideo", "video"),
