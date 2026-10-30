@@ -468,13 +468,37 @@ def test_history_request_timeout_bounds_in_flight_http(monkeypatch: pytest.Monke
 
 
 @pytest.mark.parametrize("completed", [False, True])
+@pytest.mark.parametrize("diagnostic_failure", [False, True])
 def test_server_session_terminal_error_fails_before_metadata(
     fake_server,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     completed: bool,
+    diagnostic_failure: bool,
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    record, bundle = _approved(_workflow())
+    order: list[str] = []
+    real_diagnostic = session_module._comfy_execution_diagnostic
+
+    def extract_diagnostic(status):
+        order.append("diagnostic")
+        if diagnostic_failure:
+            raise ValueError("DIAGNOSTIC_FAILURE_SENTINEL")
+        return real_diagnostic(status)
+
+    async def start_watchdog(**_kwargs):
+        return object()
+
+    async def finalize_watchdog(_watchdog, *, run_dir, reason):
+        order.append(reason)
+        # Cleanup may invalidate the original terminal payload. The facts on the
+        # raised exception must already be detached from that mutable payload.
+        FakeAsyncClient.history_status.clear()
+
+    monkeypatch.setattr(session_module, "_comfy_execution_diagnostic", extract_diagnostic)
+    monkeypatch.setattr(session_module, "_start_watchdog", start_watchdog)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", finalize_watchdog)
     FakeAsyncClient.history_outputs = {}
     FakeAsyncClient.history_status = {
         "status_str": "error",
@@ -484,6 +508,7 @@ def test_server_session_terminal_error_fails_before_metadata(
                 "execution_error",
                 {
                     "node_id": "7",
+                    "node_type": "KSampler",
                     "exception_type": "ValueError",
                     "exception_message": "bad latent shape",
                 },
@@ -495,16 +520,24 @@ def test_server_session_terminal_error_fails_before_metadata(
         session = ServerSession(SessionConfig(port=8200))
         try:
             with pytest.raises(RuntimeNodeError) as exc_info:
-                await session.run(*_approved(_workflow()))
+                await session.run(record, bundle)
             message = str(exc_info.value)
             assert "prompt-1" in message
             assert "execution_error" in message
             assert "bad latent shape" in message
+            diagnostic = exc_info.value.comfy_diagnostic
+            assert diagnostic["code"] == "comfy_execution_error"
+            assert diagnostic["node_id"] == ("unavailable" if diagnostic_failure else "7")
+            assert "DIAGNOSTIC_FAILURE_SENTINEL" not in message
         finally:
             await session.stop()
 
     asyncio.run(run_case())
+    assert order == ["diagnostic", "errored"]
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+    _attempt, events = _terminal_events(tmp_path, record)
+    assert events[-1]["event_type"] == "discarded"
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"]["reason_type"] == "RuntimeNodeError"
 
 
 def test_server_session_does_not_finalize_watchdog_completed_before_history(
@@ -916,6 +949,125 @@ def test_terminal_error_evidence_is_bounded() -> None:
     assert "prompt-large-error" in message
     assert "execution_error" in message
     assert len(message) < 2200
+
+
+@pytest.mark.parametrize("details_field", ["messages", "error_details"])
+def test_terminal_comfy_diagnostic_survives_noisy_payload_before_text_truncation(
+    details_field: str,
+) -> None:
+    sentinel = "PRIVATE_PROMPT_PATH_TOKEN_SENTINEL"
+    details = {f"noise-{index:02}": sentinel * 100 for index in range(80)}
+    details.update({
+        "node_id": "27",
+        "node_type": "MiniMaxH3Validate24FPSVideo",
+        "exception_type": "ValueError",
+        "exception_message": "Expected 56 frames but got 48 frames.",
+        "current_inputs": {"prompt": sentinel, "expected": 999, "observed": 998},
+        "source_identity": sentinel,
+        "correlation": sentinel,
+    })
+    status = {"status_str": "error", "completed": False}
+    status[details_field] = (
+        [["execution_error", details]] if details_field == "messages" else details
+    )
+    with pytest.raises(RuntimeNodeError) as exc_info:
+        session_module._decode_terminal_result(
+            {"outputs": {}, "status": status},
+            prompt_id=sentinel * 100,
+            status_required=True,
+        )
+
+    error = exc_info.value
+    diagnostic = error.comfy_diagnostic
+    assert diagnostic == {
+        "schema_version": 1,
+        "code": "comfy_execution_error",
+        "stage": "execution",
+        "node_id": "27",
+        "node_class": "MiniMaxH3Validate24FPSVideo",
+        "exception_type": "ValueError",
+        "message": "Frame count mismatch.",
+        "expected": 56,
+        "observed": 48,
+        "correlation": diagnostic["correlation"],
+        "source_identity": "unavailable",
+    }
+    assert len(diagnostic["correlation"]) == 32
+    assert all(character in "0123456789abcdef" for character in diagnostic["correlation"])
+    assert sentinel not in json.dumps(diagnostic)
+    assert len(json.dumps(diagnostic)) < 1024
+    assert "MiniMaxH3Validate24FPSVideo" not in str(error)
+    assert len(str(error)) < 2200
+    assert error.diagnostics[0]["code"] == "comfy_execution_error"
+
+
+@pytest.mark.parametrize(
+    ("expected", "observed", "safe_expected", "safe_observed"),
+    [
+        (56, 48.5, 56, 48.5),
+        (float("nan"), float("inf"), "unavailable", "unavailable"),
+        (float("-inf"), True, "unavailable", "unavailable"),
+        ("56", {"value": 48}, "unavailable", "unavailable"),
+        (10**1000, None, "unavailable", "unavailable"),
+    ],
+)
+def test_terminal_comfy_diagnostic_accepts_only_finite_numeric_facts(
+    expected, observed, safe_expected, safe_observed,
+) -> None:
+    diagnostic = session_module._comfy_execution_diagnostic({
+        "error_details": {"expected": expected, "observed": observed},
+    })
+    assert diagnostic["expected"] == safe_expected
+    assert diagnostic["observed"] == safe_observed
+    assert diagnostic["message"] == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        {},
+        {
+            "node_id": "/private/PRIVATE_SENTINEL",
+            "node_type": "KSampler_PRIVATE_SENTINEL",
+            "exception_type": "ValueError_PRIVATE_SENTINEL",
+            "exception_message": "Expected 56 frames but got 48 frames. PRIVATE_SENTINEL",
+            "expected": "PRIVATE_SENTINEL",
+            "observed": {"PRIVATE_SENTINEL": 48},
+            "source_identity": "verified:PRIVATE_SENTINEL",
+            "correlation": "PRIVATE_SENTINEL",
+            "current_inputs": {"expected": 56, "observed": 48},
+        },
+        {
+            "node_id": "123" * 1000,
+            "node_type": "PRIVATE_SENTINEL" * 1000,
+            "exception_type": "PRIVATE_SENTINEL" * 1000,
+            "exception_message": "frame count mismatch PRIVATE_SENTINEL" * 1000,
+        },
+    ],
+)
+def test_terminal_comfy_diagnostic_marks_missing_and_unsafe_facts_unavailable(details) -> None:
+    diagnostic = session_module._comfy_execution_diagnostic({"error_details": details})
+    for key in (
+        "node_id", "node_class", "exception_type", "message", "expected", "observed",
+        "source_identity",
+    ):
+        assert diagnostic[key] == "unavailable"
+    assert "PRIVATE_SENTINEL" not in json.dumps(diagnostic)
+
+
+def test_terminal_comfy_diagnostic_uses_one_latest_execution_error() -> None:
+    diagnostic = session_module._comfy_execution_diagnostic({
+        "error_details": {"node_id": "1", "expected": 999, "observed": 998},
+        "messages": [
+            ["execution_error", {"node_id": "2", "expected": 56, "observed": 48}],
+            ["execution_error", {"node_id": "3", "node_type": "KSampler"}],
+            ["execution_success", {"node_id": "4"}],
+        ],
+    })
+    assert diagnostic["node_id"] == "3"
+    assert diagnostic["node_class"] == "KSampler"
+    assert diagnostic["expected"] == "unavailable"
+    assert diagnostic["observed"] == "unavailable"
 
 
 def test_server_history_pending_then_explicit_empty_success(

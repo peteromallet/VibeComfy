@@ -319,11 +319,34 @@ def test_embedded_finalized_journal_write_failure_is_visible(
     _assert_exact_runtime_record(attempt, record)
     _assert_exact_runtime_record(events[-1], record)
 
+@pytest.mark.parametrize("diagnostic_failure", [False, True])
 def test_embedded_session_terminal_error_fails_before_metadata(
-    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    fake_comfy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, diagnostic_failure: bool,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     _patch_fast_runtime_run(monkeypatch)
+    record, bundle = _approved(_workflow())
+    order: list[str] = []
+    real_diagnostic = session_module._comfy_execution_diagnostic
+    terminal_details = {
+        "node_id": "2",
+        "node_type": "KSampler",
+        "exception_type": "RuntimeError",
+        "exception_message": "embedded sampler failed",
+    }
+
+    def extract_diagnostic(status):
+        order.append("diagnostic")
+        if diagnostic_failure:
+            raise ValueError("DIAGNOSTIC_FAILURE_SENTINEL")
+        return real_diagnostic(status)
+
+    async def finalize_watchdog(_watchdog, *, run_dir, reason):
+        order.append(reason)
+        terminal_details.clear()
+
+    monkeypatch.setattr(session_module, "_comfy_execution_diagnostic", extract_diagnostic)
+    monkeypatch.setattr(session_module, "_finalize_watchdog", finalize_watchdog)
 
     async def failed_queue(_self, _api_dict):
         return {
@@ -335,10 +358,7 @@ def test_embedded_session_terminal_error_fails_before_metadata(
                 "messages": [
                     [
                         "execution_error",
-                        {
-                            "node_id": "2",
-                            "exception_message": "embedded sampler failed",
-                        },
+                        terminal_details,
                     ]
                 ],
             },
@@ -346,10 +366,18 @@ def test_embedded_session_terminal_error_fails_before_metadata(
 
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", failed_queue)
 
-    with pytest.raises(RuntimeNodeError, match="embedded sampler failed"):
-        asyncio.run(EmbeddedSession().run(*_approved(_workflow())))
+    with pytest.raises(RuntimeNodeError, match="embedded sampler failed") as exc_info:
+        asyncio.run(EmbeddedSession().run(record, bundle))
 
+    diagnostic = exc_info.value.comfy_diagnostic
+    assert diagnostic["node_id"] == ("unavailable" if diagnostic_failure else "2")
+    assert diagnostic["exception_type"] == ("unavailable" if diagnostic_failure else "RuntimeError")
+    assert "DIAGNOSTIC_FAILURE_SENTINEL" not in str(exc_info.value)
+    assert order == ["diagnostic", "errored"]
     assert not list(tmp_path.glob("out/runs/*/metadata.json"))
+    _attempt, events = _terminal_events(tmp_path, record)
+    assert events[-1]["event_type"] == "discarded"
+    assert events[-1]["receipt"]["runtime_evidence"]["terminal"]["reason_type"] == "RuntimeNodeError"
 
 
 def test_embedded_session_malformed_result_fails_before_metadata(

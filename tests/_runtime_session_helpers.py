@@ -210,6 +210,19 @@ class FakeAsyncClient:
 
     async def get(self, url: str) -> FakeResponse:
         self.gets.append(url)
+        if url.endswith("/object_info"):
+            # Live reconciliation needs a schema, rather than the readiness
+            # response used by the other synthetic HTTP endpoints.
+            return FakeResponse(200, {
+                "CheckpointLoaderSimple": {
+                    "input": {"required": {"ckpt_name": ["STRING"]}},
+                    "output": ["MODEL", "CLIP", "VAE"],
+                },
+                "KSampler": {
+                    "input": {"required": {"seed": ["INT"]}},
+                    "output": ["LATENT"],
+                },
+            })
         if "/history/" in url:
             prompt_id = url.rstrip("/").rsplit("/", 1)[-1]
             return FakeResponse(
@@ -232,6 +245,8 @@ class FakeAsyncClient:
 
 class FakeProcess:
     def __init__(self, *, wait_blocks: bool = False) -> None:
+        # This fixture never spawns an OS process or has a process identity.
+        self.pid: int | None = None
         self.returncode: int | None = None
         self.signals: list[int] = []
         self.killed = False

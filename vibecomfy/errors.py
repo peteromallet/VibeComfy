@@ -116,6 +116,10 @@ class SubgraphFreshnessError(VibeComfyError):
 class RuntimeNodeError(VibeComfyError):
     """A node failed during ComfyUI runtime execution."""
 
+    # Optional privacy-safe execution facts, independent of the bounded legacy
+    # text/diagnostics surface. Other runtime failures need not populate it.
+    comfy_diagnostic: dict[str, object] | None = None
+
 
 class DriftError(VibeComfyError):
     """Custom-node or model pins have drifted from the lockfile."""

@@ -1904,7 +1904,7 @@ class EmbeddedSession:
                 wrapped = QueueError(
                     _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
                 )
-                for attribute in ("diagnostics", "prompt_id", "output_verification", "completion_status"):
+                for attribute in ("diagnostics", "comfy_diagnostic", "prompt_id", "output_verification", "completion_status"):
                     if hasattr(exc, attribute):
                         setattr(wrapped, attribute, getattr(exc, attribute))
                 raise wrapped from exc
@@ -2404,7 +2404,7 @@ class ServerSession:
                 wrapped = QueueError(
                     _workflow_queue_failure_message(workflow, exc), next_action="vibecomfy runtime doctor"
                 )
-                for attribute in ("diagnostics", "prompt_id", "output_verification", "completion_status"):
+                for attribute in ("diagnostics", "comfy_diagnostic", "prompt_id", "output_verification", "completion_status"):
                     if hasattr(exc, attribute):
                         setattr(wrapped, attribute, getattr(exc, attribute))
                 raise wrapped from exc
@@ -3914,13 +3914,138 @@ def _bounded_diagnostic(text: str) -> str:
     return text[:head] + "...<truncated>..." + text[-tail:]
 
 
+_COMFY_DIAGNOSTIC_UNAVAILABLE = "unavailable"
+# A syntactically valid identifier can still be a prompt or credential. Keep
+# literal allowlists here rather than copying arbitrary custom-node/type names.
+_COMFY_DIAGNOSTIC_NODE_CLASSES = frozenset({
+    "CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage",
+    "KSampler", "KSamplerAdvanced", "LoadImage", "LoadVideo", "SaveImage",
+    "MiniMaxH3AVExtensionController", "MiniMaxH3CropTo32",
+    "MiniMaxH3GeneratedAVMaskedContext", "MiniMaxH3ReferenceToVideo",
+    "MiniMaxH3StartCanvasSelector", "MiniMaxH3StartMaskedContext",
+    "MiniMaxH3StreamLiveExtensionAVToVHS", "MiniMaxH3Validate24FPSVideo",
+    "VAEDecode", "VAEEncode", "VHS_LoadVideo", "VHS_LoadVideoPath",
+    "VHS_LoadVideoFFmpeg", "VHS_VideoCombine",
+    "WanVideoDecode", "WanVideoEncode", "WanVideoSampler",
+})
+_COMFY_DIAGNOSTIC_EXCEPTION_TYPES = frozenset({
+    "AssertionError", "AttributeError", "FileNotFoundError", "IndexError",
+    "KeyError", "MemoryError", "NotImplementedError", "OSError",
+    "OverflowError", "RuntimeError", "TypeError", "ValueError",
+    "ZeroDivisionError", "torch.OutOfMemoryError", "torch.cuda.OutOfMemoryError",
+})
+_COMFY_DIAGNOSTIC_MESSAGES = {
+    "bad latent shape": "Invalid latent shape.",
+    "invalid latent shape": "Invalid latent shape.",
+    "frame count mismatch": "Frame count mismatch.",
+    "cuda out of memory": "CUDA out of memory.",
+    "out of memory": "Out of memory.",
+}
+_COMFY_DIAGNOSTIC_FRAME_COUNTS = re.compile(
+    r"(?:frame count mismatch[:,]?\s*)?expected\s+([0-9]{1,12})"
+    r"(?:\s+frames)?(?:\s+but|,)?\s+(?:got|observed|received)\s+([0-9]{1,12})"
+    r"(?:\s+frames)?[.!]?",
+    re.IGNORECASE,
+)
+
+
+def _empty_comfy_diagnostic() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "code": "comfy_execution_error",
+        "stage": "execution",
+        **{
+            key: _COMFY_DIAGNOSTIC_UNAVAILABLE
+            for key in (
+                "node_id", "node_class", "exception_type", "message", "expected",
+                "observed", "correlation", "source_identity",
+            )
+        },
+    }
+
+
+def _comfy_diagnostic_number(value: Any) -> int | float | str:
+    # Reject booleans, strings and user objects without coercion. Very large
+    # integers that cannot be represented as a finite float are unsafe to render.
+    if type(value) not in (int, float):
+        return _COMFY_DIAGNOSTIC_UNAVAILABLE
+    try:
+        return value if math.isfinite(value) else _COMFY_DIAGNOSTIC_UNAVAILABLE
+    except OverflowError:
+        return _COMFY_DIAGNOSTIC_UNAVAILABLE
+
+
+def _comfy_execution_diagnostic(status: Any) -> dict[str, Any]:
+    """Project raw terminal facts without walking inputs or copying free text.
+
+    One execution_error event is authoritative; do not combine identities or
+    numeric facts from separate events. error_details is the fallback for
+    terminal implementations which do not emit an execution_error message.
+    """
+    diagnostic = _empty_comfy_diagnostic()
+    # Locally generated correlation never copies a possibly private prompt ID.
+    diagnostic["correlation"] = uuid.uuid4().hex
+    details = _terminal_field(status, "error_details")
+    messages = _terminal_field(status, "messages")
+    if isinstance(messages, (list, tuple)):
+        for message in reversed(messages):
+            if (
+                isinstance(message, (list, tuple))
+                and len(message) >= 2
+                and message[0] == "execution_error"
+            ):
+                details = message[1]
+                break
+    if not isinstance(details, Mapping):
+        return diagnostic
+
+    node_id = details.get("node_id")
+    if type(node_id) is int and 0 <= node_id < 10**32:
+        diagnostic["node_id"] = str(node_id)
+    elif type(node_id) is str and re.fullmatch(r"[0-9]{1,32}", node_id):
+        diagnostic["node_id"] = node_id
+    node_class = details.get("node_type")
+    if type(node_class) is str and node_class in _COMFY_DIAGNOSTIC_NODE_CLASSES:
+        diagnostic["node_class"] = node_class
+    exception_type = details.get("exception_type")
+    if type(exception_type) is str and exception_type in _COMFY_DIAGNOSTIC_EXCEPTION_TYPES:
+        diagnostic["exception_type"] = exception_type
+
+    diagnostic["expected"] = _comfy_diagnostic_number(details.get("expected"))
+    diagnostic["observed"] = _comfy_diagnostic_number(details.get("observed"))
+    message = details.get("exception_message")
+    # Full matches only: even an otherwise recognized message with an appended
+    # prompt/path/token must become unavailable. Never search arbitrary text.
+    if type(message) is str and len(message) <= 160:
+        normalized = message.strip().lower().rstrip(".!")
+        diagnostic["message"] = _COMFY_DIAGNOSTIC_MESSAGES.get(
+            normalized, _COMFY_DIAGNOSTIC_UNAVAILABLE
+        )
+        counts = _COMFY_DIAGNOSTIC_FRAME_COUNTS.fullmatch(message.strip())
+        if counts:
+            diagnostic["message"] = "Frame count mismatch."
+            for field_name, count in zip(("expected", "observed"), counts.groups()):
+                if field_name not in details:
+                    diagnostic[field_name] = int(count)
+    # No verified source provenance is available in terminal status. In
+    # particular, source_identity/correlation claims in node payloads are ignored.
+    return diagnostic
+
+
 def _raise_terminal_execution_error(status: Any, prompt_id: str | None) -> None:
+    # Capture before bounded text formatting and before the session's cleanup.
+    # Diagnostic extraction must never replace the execution failure.
+    try:
+        comfy_diagnostic = _comfy_execution_diagnostic(status)
+    except Exception:
+        comfy_diagnostic = _empty_comfy_diagnostic()
     label = _bounded_terminal_value(prompt_id if prompt_id else "<unknown>")
     message = f"Comfy prompt {label} failed: {_bounded_terminal_evidence(status)}"
     error = RuntimeNodeError(
         _bounded_diagnostic(message),
         next_action="vibecomfy runtime doctor",
     )
+    error.comfy_diagnostic = comfy_diagnostic
     error.diagnostics = [{
         "code": "comfy_execution_error",
         "prompt_id": prompt_id,
